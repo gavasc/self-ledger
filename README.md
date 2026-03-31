@@ -22,7 +22,7 @@ A local-first personal finance desktop app. Track expenses, revenues, and accoun
 
 ```bash
 bun install
-bun run dev
+bunx tauri dev
 ```
 
 This starts the Vite dev server and opens the Tauri window with hot reload.
