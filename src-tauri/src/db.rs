@@ -58,3 +58,46 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM transactions WHERE id = ?1", params![id])?;
     Ok(())
 }
+
+pub fn export_json(conn: &Connection) -> Result<String> {
+    let mut stmt = conn.prepare(
+        "SELECT id, type, desc, cat, val, date FROM transactions ORDER BY date DESC"
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(Transaction {
+            id:     Some(row.get(0)?),
+            type_:  row.get(1)?,
+            desc:   row.get(2)?,
+            cat:   row.get(3)?,
+            val:   row.get(4)?,
+            date:   row.get(5)?,
+        })
+    })?;
+    let transactions: Vec<Transaction> = rows.collect::<Result<Vec<_>>>()?;
+
+    Ok(serde_json::to_string_pretty(&transactions).unwrap())
+}
+
+pub fn export_csv(conn: &Connection) -> Result<String> {
+    let mut stmt = conn.prepare(
+        "SELECT id, type, desc, cat, val, date FROM transactions ORDER BY date DESC"
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, f64>(4)?,
+            row.get::<_, String>(5)?,
+        ))
+    })?;
+    let mut csv = String::from("id,type,desc,cat,val,date\n");
+
+    for row in rows {
+        let (id, type_, desc, cat, val, date) = row?;
+        csv.push_str(&format!("{},{},{},{},{:.2},{}\n", id, type_, desc, cat, val, date));
+    }
+
+    Ok(csv)
+}

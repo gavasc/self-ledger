@@ -33,3 +33,15 @@ pub fn delete_transaction(
     let conn = state.0.lock().unwrap();
     db::delete(&conn, id).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn export_json(state: State<DbConn>) -> Result<String, String> {
+    let conn = state.0.lock().unwrap();
+    db::export_json(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn export_csv(state: State<DbConn>) -> Result<String, String> {
+    let conn = state.0.lock().unwrap();
+    db::export_csv(&conn).map_err(|e| e.to_string())
+}

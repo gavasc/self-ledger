@@ -15,10 +15,14 @@ fn main() {
             app.manage(commands::DbConn(std::sync::Mutex::new(conn)));
             Ok(())
         })
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             commands::get_transactions,
             commands::add_transaction,
             commands::delete_transaction,
+            commands::export_json,
+            commands::export_csv,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

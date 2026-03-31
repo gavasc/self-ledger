@@ -2,6 +2,8 @@
     import { onMount } from "svelte";
     import { invoke } from "@tauri-apps/api/core";
     import Chart from "chart.js/auto";
+    import { save } from "@tauri-apps/plugin-dialog";
+    import { writeTextFile } from "@tauri-apps/plugin-fs";
 
     // ── State ────────────────────────────────────────────────
     let records = $state([]);
@@ -95,6 +97,23 @@
         if (prevRev === 0) return null;
         return ((totalRev - prevRev) / prevRev) * 100;
     });
+
+    // --- Exporting -----------------------
+    async function exportJSON() {
+        const data = await invoke("export_json");
+        const path = await save({
+            filters: [{ name: "JSON", extensions: ["json"] }],
+        });
+        if (path) await writeTextFile(path, data);
+    }
+
+    async function exportCSV() {
+        const data = await invoke("export_csv");
+        const path = await save({
+            filters: [{ name: "CSV", extensions: ["csv"] }],
+        });
+        if (path) await writeTextFile(path, data);
+    }
 
     // ── Category breakdown ────────────────────────────────────
     function catBreakdown(items, total) {
@@ -492,22 +511,29 @@
         />
     </div>
 
-    <div class="nav-totals">
-        <div class="nav-tot">
-            <span class="nav-tot-label">Expenses</span>
-            <span class="nav-tot-val exp">{brl(totalExp)}</span>
+    <div class="nav-right">
+        <div class="nav-totals">
+            <div class="nav-tot">
+                <span class="nav-tot-label">Expenses</span>
+                <span class="nav-tot-val exp">{brl(totalExp)}</span>
+            </div>
+            <div class="nav-tot">
+                <span class="nav-tot-label">Revenues</span>
+                <span class="nav-tot-val rev">{brl(totalRev)}</span>
+            </div>
+            <div class="nav-tot">
+                <span class="nav-tot-label">Balance</span>
+                <span
+                    class="nav-tot-val"
+                    class:pos={balance >= 0}
+                    class:neg={balance < 0}>{brl(Math.abs(balance))}</span
+                >
+            </div>
         </div>
-        <div class="nav-tot">
-            <span class="nav-tot-label">Revenues</span>
-            <span class="nav-tot-val rev">{brl(totalRev)}</span>
-        </div>
-        <div class="nav-tot">
-            <span class="nav-tot-label">Balance</span>
-            <span
-                class="nav-tot-val"
-                class:pos={balance >= 0}
-                class:neg={balance < 0}>{brl(Math.abs(balance))}</span
-            >
+
+        <div class="nav-exports">
+            <button class="exp-btn" onclick={exportJSON}>↓ JSON</button>
+            <button class="exp-btn" onclick={exportCSV}>↓ CSV</button>
         </div>
     </div>
 </header>
@@ -835,10 +861,15 @@
     .dinput:focus {
         border-bottom-color: var(--ink);
     }
+    .nav-right {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        justify-self: end;
+    }
     .nav-totals {
         display: flex;
         gap: 24px;
-        justify-content: flex-end;
         align-items: center;
     }
     .nav-tot {
@@ -870,6 +901,32 @@
     }
     .nav-tot-val.neg {
         color: var(--red);
+    }
+    .nav-exports {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 5px;
+    }
+    .exp-btn {
+        font-family: "Caveat Brush", cursive;
+        font-size: 13px;
+        letter-spacing: 0.03em;
+        background: none;
+        border: 1.5px solid var(--ink-mid);
+        color: var(--ink-mid);
+        border-radius: 4px;
+        padding: 2px 10px;
+        cursor: pointer;
+        line-height: 1.4;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+        width: 76px;
+        text-align: center;
+    }
+    .exp-btn:hover {
+        background: var(--ink-mid);
+        color: var(--paper);
+        border-color: var(--ink-mid);
     }
 
     /* ── LAYOUT ── */
