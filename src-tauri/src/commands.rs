@@ -115,3 +115,28 @@ pub fn delete_transfer(
     let conn = state.0.lock().unwrap();
     db::delete_transfer(&conn, id).map_err(|e| e.to_string())
 }
+
+// ── Notes ─────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn get_note(
+    state: State<DbConn>,
+    section: String,
+    from: String,
+    to: String,
+) -> Result<String, String> {
+    let conn = state.0.lock().unwrap();
+    db::get_note(&conn, &section, &from, &to).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_note(
+    state: State<DbConn>,
+    section: String,
+    from: String,
+    to: String,
+    content: String,
+) -> Result<(), String> {
+    let conn = state.0.lock().unwrap();
+    db::upsert_note(&conn, &section, &from, &to, &content).map_err(|e| e.to_string())
+}

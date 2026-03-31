@@ -29,41 +29,95 @@ Frontend (SvelteKit/Svelte 5)  ──invoke()──►  Backend (Tauri/Rust)  �
 src/routes/+page.svelte                        src-tauri/src/
                                                ├── main.rs       (app init, DB setup, command registration)
                                                ├── commands.rs   (IPC handlers)
-                                               └── db.rs         (SQLite operations, Transaction struct)
+                                               ├── db.rs         (SQLite operations, all structs)
+                                               └── lib.rs        (re-exports db for the lib crate)
 ```
 
 ### Frontend (`src/routes/+page.svelte`)
 
-This is the entire UI — a single 1200-line Svelte 5 file. Key patterns:
+This is the entire UI — a single Svelte 5 file. Key patterns:
 - Uses Svelte 5 **runes**: `$state`, `$derived`, `$derived.by()`, `$effect`
 - Calls Rust via `invoke("command_name", { args })` from `@tauri-apps/api/core`
 - Chart.js instances are created/destroyed in `$effect` blocks (watch `filtered` records)
 - SSR is disabled (`+layout.ts` sets `ssr = false`, `prerender = true`)
+- Charts bucket by **day** (not month)
+- Navbar "Balance" shows the sum of all account balances (not period net)
 
 ### Backend
 
-**`main.rs`** — Initializes Tauri, opens SQLite at `app_data_dir()`, calls `db::init()`, registers the 5 commands.
+**`main.rs`** — Initializes Tauri, opens SQLite at `app_data_dir()`, calls `db::init()`, registers all commands.
 
-**`commands.rs`** — Thin IPC handlers that delegate to `db.rs`: `get_transactions`, `add_transaction`, `delete_transaction`, `export_json`, `export_csv`.
+**`commands.rs`** — Thin IPC handlers that delegate to `db.rs`.
 
-**`db.rs`** — All database logic. The `Transaction` struct maps to:
+**`db.rs`** — All database logic. Structs and tables:
+
 ```sql
 CREATE TABLE transactions (
-    id    INTEGER PRIMARY KEY AUTOINCREMENT,
-    type  TEXT NOT NULL,   -- "expense" or "revenue"
-    desc  TEXT NOT NULL,
-    cat   TEXT NOT NULL,
-    val   REAL NOT NULL,
-    date  TEXT NOT NULL    -- "YYYY-MM-DD"
-)
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    type       TEXT NOT NULL,   -- "expense" or "revenue"
+    desc       TEXT NOT NULL,
+    cat        TEXT NOT NULL,
+    val        REAL NOT NULL,
+    date       TEXT NOT NULL,   -- "YYYY-MM-DD"
+    account_id INTEGER REFERENCES accounts(id)  -- nullable, added via migration
+);
+
+CREATE TABLE accounts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL UNIQUE,
+    initial_balance REAL NOT NULL DEFAULT 0
+);
+
+CREATE TABLE transfers (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_account_id INTEGER NOT NULL REFERENCES accounts(id),
+    to_account_id   INTEGER NOT NULL REFERENCES accounts(id),
+    amount          REAL NOT NULL,
+    date            TEXT NOT NULL,
+    desc            TEXT NOT NULL DEFAULT ''
+);
 ```
+
+`account_id` on transactions is added via a safe `ALTER TABLE` migration on every startup (ignored if column already exists).
+
+### Account Balance Formula
+
+Current balance is computed on the fly — not stored:
+
+```
+balance = initial_balance
+        + SUM(transfers where to_account_id = id)
+        - SUM(transfers where from_account_id = id)
+        + SUM(transactions where account_id = id AND type = 'revenue')
+        - SUM(transactions where account_id = id AND type = 'expense')
+```
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `get_transactions` | Query transactions by date range |
+| `add_transaction` | Insert a new transaction |
+| `update_transaction` | Update all fields of an existing transaction |
+| `delete_transaction` | Delete by id |
+| `export_json` | Export transactions + accounts (with balance) + transfers as JSON |
+| `export_csv` | Export same data as CSV with three labeled sections |
+| `get_accounts` | List all accounts |
+| `add_account` | Insert a new account |
+| `delete_account` | Delete by id |
+| `get_account_balances` | List accounts with computed current balance |
+| `get_transfers` | List all transfers (joined with account names) |
+| `add_transfer` | Insert a new transfer |
+| `delete_transfer` | Delete by id |
 
 ### Data Flow
 
-1. App starts → Tauri opens SQLite → frontend mounts → calls `setPeriod("3m")` → loads last 3 months
-2. Add transaction: form → `addEntry()` validates → `invoke("add_transaction")` → DB insert → reload
-3. Charts: `$effect` watches `filtered` (derived from `records`) → destroys old Chart.js instances → creates new ones
-4. Export: `invoke("export_json"/"export_csv")` → file written via Tauri dialog
+1. App starts → Tauri opens SQLite → `db::init()` creates tables + runs migrations → frontend mounts → `setPeriod("3m")` → loads last 3 months + accounts + transfers
+2. Add transaction: form → `addEntry()` validates → `invoke("add_transaction")` → DB insert → reload records + account balances
+3. Edit transaction: click ✎ on ledger row → inline edit form → `invoke("update_transaction")` → reload
+4. Transfers: transfer form → `invoke("add_transfer")` → reload accounts + transfers
+5. Charts: `$effect` watches `filtered` (derived from `records`) → destroys old Chart.js instances → creates new ones bucketed by day
+6. Export: `invoke("export_json"/"export_csv")` → file written via Tauri dialog
 
 ### Key Rust State
 

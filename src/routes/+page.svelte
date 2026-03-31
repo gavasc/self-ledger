@@ -99,6 +99,10 @@
         [...filtered].sort((a, b) => b.date.localeCompare(a.date)),
     );
 
+    // ── Notes ─────────────────────────────────────────────────
+    let expNote = $state("");
+    let revNote = $state("");
+
     // ── Variation: compare current period to equally-sized previous period ──
     let varExp = $derived.by(() => {
         if (!dateFrom || !dateTo) return 0;
@@ -308,11 +312,13 @@
         dateFrom = from.toISOString().split("T")[0];
         dateTo = now.toISOString().split("T")[0];
         loadRecords();
+        loadNotes();
     }
 
     function applyDates() {
         activePeriod = "";
         loadRecords();
+        loadNotes();
     }
 
     // ── Backend calls ─────────────────────────────────────────
@@ -324,6 +330,23 @@
             });
         } catch (e) {
             console.error("get_transactions failed:", e);
+        }
+    }
+
+    async function loadNotes() {
+        try {
+            expNote = await invoke<string>("get_note", { section: "expense", from: dateFrom, to: dateTo });
+            revNote = await invoke<string>("get_note", { section: "revenue", from: dateFrom, to: dateTo });
+        } catch (e) {
+            console.error("get_note failed:", e);
+        }
+    }
+
+    async function saveNote(section: "expense" | "revenue", content: string) {
+        try {
+            await invoke("save_note", { section, from: dateFrom, to: dateTo, content });
+        } catch (e) {
+            console.error("save_note failed:", e);
         }
     }
 
@@ -877,6 +900,8 @@
                 <div class="annot" style="margin-top:0;">
                     <div class="annot-label">notes</div>
                     <textarea rows="8" placeholder="personal annotations..."
+                        bind:value={expNote}
+                        onblur={() => saveNote("expense", expNote)}
                     ></textarea>
                 </div>
             </div>
@@ -907,6 +932,8 @@
                 <div class="annot" style="margin-top:0;">
                     <div class="annot-label">notes</div>
                     <textarea rows="8" placeholder="personal annotations..."
+                        bind:value={revNote}
+                        onblur={() => saveNote("revenue", revNote)}
                     ></textarea>
                 </div>
             </div>

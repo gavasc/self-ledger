@@ -31,6 +31,8 @@ fn main() {
             commands::get_transfers,
             commands::add_transfer,
             commands::delete_transfer,
+            commands::get_note,
+            commands::save_note,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");

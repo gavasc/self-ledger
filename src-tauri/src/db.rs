@@ -62,6 +62,13 @@ pub fn init(conn: &Connection) -> Result<()> {
             date            TEXT    NOT NULL,
             desc            TEXT    NOT NULL DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS notes (
+            section     TEXT NOT NULL,
+            period_from TEXT NOT NULL,
+            period_to   TEXT NOT NULL,
+            content     TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (section, period_from, period_to)
+        );
     ")?;
     // Migration: add account_id to transactions (ignored if column already exists)
     let _ = conn.execute(
@@ -157,10 +164,31 @@ pub fn export_json(conn: &Connection) -> Result<String> {
         })
     })?.collect::<Result<Vec<_>>>()?;
 
+    let mut nstmt = conn.prepare(
+        "SELECT section, period_from, period_to, content FROM notes WHERE content != '' ORDER BY section, period_from"
+    )?;
+    let notes: Vec<serde_json::Value> = nstmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })?.collect::<Result<Vec<_>>>()?
+    .into_iter()
+    .map(|(section, from, to, content)| serde_json::json!({
+        "section":   section,
+        "date-from": from,
+        "date-to":   to,
+        "note":      content,
+    }))
+    .collect();
+
     let out = serde_json::json!({
         "transactions": transactions,
         "accounts":     accounts,
         "transfers":    transfers,
+        "notes":        notes,
     });
     Ok(serde_json::to_string_pretty(&out).unwrap())
 }
@@ -219,6 +247,25 @@ pub fn export_csv(conn: &Connection) -> Result<String> {
     })? {
         let (id, from, to, amount, date, desc) = row?;
         csv.push_str(&format!("{},{},{},{:.2},{},{}\n", id, from, to, amount, date, desc));
+    }
+
+    // notes
+    csv.push_str("\nnotes\n");
+    csv.push_str("section,date-from,date-to,note\n");
+    let mut nstmt = conn.prepare(
+        "SELECT section, period_from, period_to, content FROM notes WHERE content != '' ORDER BY section, period_from"
+    )?;
+    for row in nstmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+        ))
+    })? {
+        let (section, from, to, content) = row?;
+        let escaped = content.replace('"', "\"\"");
+        csv.push_str(&format!("{},{},{},\"{}\"\n", section, from, to, escaped));
     }
 
     Ok(csv)
@@ -316,5 +363,30 @@ pub fn get_transfers(conn: &Connection) -> Result<Vec<Transfer>> {
 
 pub fn delete_transfer(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM transfers WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+// ── Notes ─────────────────────────────────────────────────────────────────────
+
+pub fn get_note(conn: &Connection, section: &str, from: &str, to: &str) -> Result<String> {
+    let result = conn.query_row(
+        "SELECT content FROM notes WHERE section = ?1 AND period_from = ?2 AND period_to = ?3",
+        params![section, from, to],
+        |row| row.get::<_, String>(0),
+    );
+    match result {
+        Ok(content) => Ok(content),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(String::new()),
+        Err(e) => Err(e),
+    }
+}
+
+pub fn upsert_note(conn: &Connection, section: &str, from: &str, to: &str, content: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO notes (section, period_from, period_to, content)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(section, period_from, period_to) DO UPDATE SET content = excluded.content",
+        params![section, from, to, content],
+    )?;
     Ok(())
 }
