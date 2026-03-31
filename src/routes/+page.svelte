@@ -1,12 +1,21 @@
 <script lang="ts">
     import { onMount } from "svelte";
     import { invoke } from "@tauri-apps/api/core";
-    import Chart from "chart.js/auto";
+    import Chart, { type TooltipItem } from "chart.js/auto";
     import { save } from "@tauri-apps/plugin-dialog";
     import { writeTextFile } from "@tauri-apps/plugin-fs";
 
+    interface Transaction {
+        id: number;
+        type: "expense" | "revenue";
+        desc: string;
+        cat: string;
+        val: number;
+        date: string;
+    }
+
     // ── State ────────────────────────────────────────────────
-    let records = $state([]);
+    let records = $state<Transaction[]>([]);
     let dateFrom = $state("");
     let dateTo = $state("");
     let activePeriod = $state("3m");
@@ -58,11 +67,11 @@
     // ── Variation: compare current period to equally-sized previous period ──
     let varExp = $derived.by(() => {
         if (!dateFrom || !dateTo) return 0;
-        const ms = new Date(dateTo) - new Date(dateFrom);
-        const prevTo = new Date(new Date(dateFrom) - 1)
+        const ms = new Date(dateTo).getTime() - new Date(dateFrom).getTime();
+        const prevTo = new Date(new Date(dateFrom).getTime() - 1)
             .toISOString()
             .split("T")[0];
-        const prevFrom = new Date(new Date(dateFrom) - ms - 1)
+        const prevFrom = new Date(new Date(dateFrom).getTime() - ms - 1)
             .toISOString()
             .split("T")[0];
         const prevExp = records
@@ -79,11 +88,11 @@
 
     let varRev = $derived.by(() => {
         if (!dateFrom || !dateTo) return 0;
-        const ms = new Date(dateTo) - new Date(dateFrom);
-        const prevTo = new Date(new Date(dateFrom) - 1)
+        const ms = new Date(dateTo).getTime() - new Date(dateFrom).getTime();
+        const prevTo = new Date(new Date(dateFrom).getTime() - 1)
             .toISOString()
             .split("T")[0];
-        const prevFrom = new Date(new Date(dateFrom) - ms - 1)
+        const prevFrom = new Date(new Date(dateFrom).getTime() - ms - 1)
             .toISOString()
             .split("T")[0];
         const prevRev = records
@@ -104,7 +113,7 @@
         const path = await save({
             filters: [{ name: "JSON", extensions: ["json"] }],
         });
-        if (path) await writeTextFile(path, data);
+        if (path) await writeTextFile(path, data as string);
     }
 
     async function exportCSV() {
@@ -112,12 +121,12 @@
         const path = await save({
             filters: [{ name: "CSV", extensions: ["csv"] }],
         });
-        if (path) await writeTextFile(path, data);
+        if (path) await writeTextFile(path, data as string);
     }
 
     // ── Category breakdown ────────────────────────────────────
-    function catBreakdown(items, total) {
-        const m = {};
+    function catBreakdown(items: Transaction[], total: number) {
+        const m: Record<string, number> = {};
         items.forEach((r) => {
             m[r.cat] = (m[r.cat] || 0) + r.val;
         });
@@ -147,21 +156,21 @@
         "Nov",
         "Dec",
     ];
-    const brl = (v) =>
+    const brl = (v: number) =>
         "R$ " +
         v
             .toFixed(2)
             .replace(".", ",")
             .replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-    const fdt = (d) => {
+    const fdt = (d: string) => {
         const [y, m, day] = d.split("-");
         return `${day} ${MO[+m - 1]} ${y}`;
     };
-    const fmtVar = (v) =>
+    const fmtVar = (v: number | null) =>
         v === null ? "n/a" : (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
 
     // ── Period control ────────────────────────────────────────
-    function setPeriod(p) {
+    function setPeriod(p: string) {
         activePeriod = p;
         const now = new Date();
         const from = new Date(now);
@@ -182,7 +191,7 @@
     // ── Backend calls ─────────────────────────────────────────
     async function loadRecords() {
         try {
-            records = await invoke("get_transactions", {
+            records = await invoke<Transaction[]>("get_transactions", {
                 from: dateFrom,
                 to: dateTo,
             });
@@ -191,7 +200,7 @@
         }
     }
 
-    async function addEntry(type) {
+    async function addEntry(type: "expense" | "revenue") {
         const isExp = type === "expense";
         const val = parseFloat(isExp ? eVal : rVal);
         const desc = isExp ? eDesc.trim() : rDesc.trim();
@@ -217,7 +226,7 @@
     }
 
     // ── Charts ────────────────────────────────────────────────
-    const chartOpts = (color) => ({
+    const chartOpts = (_color?: string) => ({
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
@@ -235,8 +244,8 @@
                 titleFont: { family: "'Caveat', cursive", size: 14 },
                 bodyFont: { family: "'Caveat', cursive", size: 13 },
                 callbacks: {
-                    label: (c) =>
-                        " " + c.dataset.label + ": " + brl(c.parsed.y),
+                    label: (c: TooltipItem<"line">) =>
+                        " " + (c.dataset.label ?? "") + ": " + brl(c.parsed.y ?? 0),
                 },
             },
         },
@@ -253,7 +262,7 @@
                 ticks: {
                     font: { family: "'Caveat', cursive", size: 12 },
                     color: "#8a7a66",
-                    callback: (v) => "R$" + v.toLocaleString("pt-BR"),
+                    callback: (v: number | string) => "R$" + Number(v).toLocaleString("pt-BR"),
                 },
                 grid: { color: "#e5ddc8" },
                 border: { color: "#c8bda6" },
@@ -261,8 +270,8 @@
         },
     });
 
-    function bucketByMonth(items) {
-        const b = {};
+    function bucketByMonth(items: Transaction[]) {
+        const b: Record<string, number> = {};
         items.forEach((r) => {
             const k = r.date.slice(0, 7);
             b[k] = (b[k] || 0) + r.val;
@@ -279,38 +288,28 @@
     }
 
     // canvas refs
-    let lineEl, donutEl, expLineEl, revLineEl;
-    let lc, dc, elc, rlc;
+    let lineEl: HTMLCanvasElement | undefined;
+    let donutEl: HTMLCanvasElement | undefined;
+    let expLineEl: HTMLCanvasElement | undefined;
+    let revLineEl: HTMLCanvasElement | undefined;
+    let lc: Chart | undefined;
+    let dc: Chart | undefined;
+    let elc: Chart | undefined;
+    let rlc: Chart | undefined;
 
     $effect(() => {
         // main line chart
-        const { ks, labels } = (() => {
-            const b = {};
-            filtered.forEach((r) => {
-                const k = r.date.slice(0, 7);
-                if (!b[k]) b[k] = { e: 0, r: 0 };
-                b[k][r.type === "expense" ? "e" : "r"] += r.val;
-            });
-            const ks = Object.keys(b).sort();
-            return {
-                ks,
-                b,
-                labels: ks.map((k) => {
-                    const [y, m] = k.split("-");
-                    return MO[+m - 1] + " " + y.slice(2);
-                }),
-                b,
-            };
-        })();
-        const bm = (() => {
-            const b = {};
-            filtered.forEach((r) => {
-                const k = r.date.slice(0, 7);
-                if (!b[k]) b[k] = { e: 0, r: 0 };
-                b[k][r.type === "expense" ? "e" : "r"] += r.val;
-            });
-            return b;
-        })();
+        const bm: Record<string, { e: number; r: number }> = {};
+        filtered.forEach((r) => {
+            const k = r.date.slice(0, 7);
+            if (!bm[k]) bm[k] = { e: 0, r: 0 };
+            bm[k][r.type === "expense" ? "e" : "r"] += r.val;
+        });
+        const ks = Object.keys(bm).sort();
+        const labels = ks.map((k) => {
+            const [y, m] = k.split("-");
+            return MO[+m - 1] + " " + y.slice(2);
+        });
         if (lc) lc.destroy();
         if (lineEl)
             lc = new Chart(lineEl, {
@@ -355,7 +354,7 @@
             "#7a3010",
             "#5a2008",
         ];
-        const em = {};
+        const em: Record<string, number> = {};
         expenses.forEach((r) => {
             em[r.cat] = (em[r.cat] || 0) + r.val;
         });
