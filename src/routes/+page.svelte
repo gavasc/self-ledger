@@ -12,6 +12,30 @@
         cat: string;
         val: number;
         date: string;
+        account_id?: number | null;
+    }
+
+    interface Account {
+        id?: number;
+        name: string;
+        initial_balance: number;
+    }
+
+    interface AccountBalance {
+        id: number;
+        name: string;
+        balance: number;
+    }
+
+    interface Transfer {
+        id?: number;
+        from_account_id: number;
+        to_account_id: number;
+        from_account_name?: string;
+        to_account_name?: string;
+        amount: number;
+        date: string;
+        desc: string;
     }
 
     // ── State ────────────────────────────────────────────────
@@ -25,12 +49,23 @@
     let eDesc = $state("");
     let eCat = $state("");
     let eDate = $state("");
+    let eAccountId = $state<number | "">("");
 
     // add-revenue form
     let rVal = $state("");
     let rDesc = $state("");
     let rCat = $state("");
     let rDate = $state("");
+    let rAccountId = $state<number | "">("");
+
+    // edit form
+    let editingId = $state<number | null>(null);
+    let editType = $state<"expense" | "revenue">("expense");
+    let editVal = $state("");
+    let editDesc = $state("");
+    let editCat = $state("");
+    let editDate = $state("");
+    let editAccountId = $state<number | "">("");
 
     // dynamic category lists derived from all records ever loaded
     let expCategories = $derived(
@@ -124,6 +159,98 @@
         if (path) await writeTextFile(path, data as string);
     }
 
+    // ── Accounts & Transfers ──────────────────────────────────
+    let accountBalances = $state<AccountBalance[]>([]);
+    let transfers = $state<Transfer[]>([]);
+    let totalAccountBalance = $derived(
+        accountBalances.reduce((s, a) => s + a.balance, 0),
+    );
+
+    // add-account form
+    let aName = $state("");
+    let aInitial = $state("");
+
+    // transfer form
+    let tfFrom = $state<number | "">("");
+    let tfTo = $state<number | "">("");
+    let tfAmount = $state("");
+    let tfDesc = $state("");
+    let tfDate = $state("");
+
+    async function loadAccounts() {
+        try {
+            accountBalances = await invoke<AccountBalance[]>(
+                "get_account_balances",
+            );
+        } catch (e) {
+            console.error("get_account_balances failed:", e);
+        }
+    }
+
+    async function loadTransfers() {
+        try {
+            transfers = await invoke<Transfer[]>("get_transfers");
+        } catch (e) {
+            console.error("get_transfers failed:", e);
+        }
+    }
+
+    async function addAccount() {
+        const name = aName.trim();
+        const initial_balance = parseFloat(aInitial) || 0;
+        if (!name) return;
+        try {
+            await invoke("add_account", { account: { name, initial_balance } });
+            aName = "";
+            aInitial = "";
+            await loadAccounts();
+        } catch (e) {
+            console.error("add_account failed:", e);
+        }
+    }
+
+    async function deleteAccount(id: number) {
+        try {
+            await invoke("delete_account", { id });
+            await loadAccounts();
+        } catch (e) {
+            console.error("delete_account failed:", e);
+        }
+    }
+
+    async function addTransfer() {
+        if (tfFrom === "" || tfTo === "" || tfFrom === tfTo) return;
+        const amount = parseFloat(tfAmount);
+        if (isNaN(amount) || amount <= 0 || !tfDate) return;
+        try {
+            await invoke("add_transfer", {
+                transfer: {
+                    from_account_id: tfFrom,
+                    to_account_id: tfTo,
+                    amount,
+                    date: tfDate,
+                    desc: tfDesc.trim(),
+                },
+            });
+            tfAmount = "";
+            tfDesc = "";
+            await loadAccounts();
+            await loadTransfers();
+        } catch (e) {
+            console.error("add_transfer failed:", e);
+        }
+    }
+
+    async function deleteTransfer(id: number) {
+        try {
+            await invoke("delete_transfer", { id });
+            await loadAccounts();
+            await loadTransfers();
+        } catch (e) {
+            console.error("delete_transfer failed:", e);
+        }
+    }
+
     // ── Category breakdown ────────────────────────────────────
     function catBreakdown(items: Transaction[], total: number) {
         const m: Record<string, number> = {};
@@ -200,17 +327,30 @@
         }
     }
 
+    let accountMap = $derived(
+        Object.fromEntries(
+            accountBalances.map((a) => [a.id, a.name]),
+        ) as Record<number, string>,
+    );
+
     async function addEntry(type: "expense" | "revenue") {
         const isExp = type === "expense";
         const val = parseFloat(isExp ? eVal : rVal);
         const desc = isExp ? eDesc.trim() : rDesc.trim();
         const cat = isExp ? eCat.trim() : rCat.trim();
         const date = isExp ? eDate : rDate;
+        const account_id = isExp
+            ? eAccountId === ""
+                ? null
+                : eAccountId
+            : rAccountId === ""
+              ? null
+              : rAccountId;
         if (!desc || isNaN(val) || val <= 0 || !date || !cat) return;
 
         try {
             await invoke("add_transaction", {
-                transaction: { type, desc, cat, val, date },
+                transaction: { type, desc, cat, val, date, account_id },
             });
             if (isExp) {
                 eVal = "";
@@ -220,8 +360,54 @@
                 rDesc = "";
             }
             await loadRecords();
+            await loadAccounts();
         } catch (e) {
             console.error("add_transaction failed:", e);
+        }
+    }
+
+    function startEdit(r: Transaction) {
+        editingId = r.id;
+        editType = r.type;
+        editVal = String(r.val);
+        editDesc = r.desc;
+        editCat = r.cat;
+        editDate = r.date;
+        editAccountId = r.account_id ?? "";
+    }
+
+    function cancelEdit() {
+        editingId = null;
+    }
+
+    async function saveEdit() {
+        if (editingId === null) return;
+        const val = parseFloat(editVal);
+        if (
+            !editDesc.trim() ||
+            !editCat.trim() ||
+            isNaN(val) ||
+            val <= 0 ||
+            !editDate
+        )
+            return;
+        try {
+            await invoke("update_transaction", {
+                transaction: {
+                    id: editingId,
+                    type: editType,
+                    desc: editDesc.trim(),
+                    cat: editCat.trim(),
+                    val,
+                    date: editDate,
+                    account_id: editAccountId === "" ? null : editAccountId,
+                },
+            });
+            editingId = null;
+            await loadRecords();
+            await loadAccounts();
+        } catch (e) {
+            console.error("update_transaction failed:", e);
         }
     }
 
@@ -245,7 +431,10 @@
                 bodyFont: { family: "'Caveat', cursive", size: 13 },
                 callbacks: {
                     label: (c: TooltipItem<"line">) =>
-                        " " + (c.dataset.label ?? "") + ": " + brl(c.parsed.y ?? 0),
+                        " " +
+                        (c.dataset.label ?? "") +
+                        ": " +
+                        brl(c.parsed.y ?? 0),
                 },
             },
         },
@@ -262,7 +451,8 @@
                 ticks: {
                     font: { family: "'Caveat', cursive", size: 12 },
                     color: "#8a7a66",
-                    callback: (v: number | string) => "R$" + Number(v).toLocaleString("pt-BR"),
+                    callback: (v: number | string) =>
+                        "R$" + Number(v).toLocaleString("pt-BR"),
                 },
                 grid: { color: "#e5ddc8" },
                 border: { color: "#c8bda6" },
@@ -270,18 +460,17 @@
         },
     });
 
-    function bucketByMonth(items: Transaction[]) {
+    function bucketByDay(items: Transaction[]) {
         const b: Record<string, number> = {};
         items.forEach((r) => {
-            const k = r.date.slice(0, 7);
-            b[k] = (b[k] || 0) + r.val;
+            b[r.date] = (b[r.date] || 0) + r.val;
         });
         const ks = Object.keys(b).sort();
         return {
             ks,
             labels: ks.map((k) => {
-                const [y, m] = k.split("-");
-                return MO[+m - 1] + " " + y.slice(2);
+                const [, m, d] = k.split("-");
+                return d + " " + MO[+m - 1];
             }),
             vals: ks.map((k) => b[k]),
         };
@@ -301,14 +490,13 @@
         // main line chart
         const bm: Record<string, { e: number; r: number }> = {};
         filtered.forEach((r) => {
-            const k = r.date.slice(0, 7);
-            if (!bm[k]) bm[k] = { e: 0, r: 0 };
-            bm[k][r.type === "expense" ? "e" : "r"] += r.val;
+            if (!bm[r.date]) bm[r.date] = { e: 0, r: 0 };
+            bm[r.date][r.type === "expense" ? "e" : "r"] += r.val;
         });
         const ks = Object.keys(bm).sort();
         const labels = ks.map((k) => {
-            const [y, m] = k.split("-");
-            return MO[+m - 1] + " " + y.slice(2);
+            const [, m, d] = k.split("-");
+            return d + " " + MO[+m - 1];
         });
         if (lc) lc.destroy();
         if (lineEl)
@@ -323,7 +511,7 @@
                             borderColor: "#8c1f1f",
                             backgroundColor: "rgba(140,31,31,.07)",
                             borderWidth: 1.5,
-                            pointRadius: 4,
+                            pointRadius: 2,
                             pointBackgroundColor: "#8c1f1f",
                             tension: 0.4,
                             fill: true,
@@ -334,7 +522,7 @@
                             borderColor: "#1a5c30",
                             backgroundColor: "rgba(26,92,48,.07)",
                             borderWidth: 1.5,
-                            pointRadius: 4,
+                            pointRadius: 2,
                             pointBackgroundColor: "#1a5c30",
                             tension: 0.4,
                             fill: true,
@@ -416,7 +604,7 @@
             });
 
         // expenses line
-        const eb = bucketByMonth(expenses);
+        const eb = bucketByDay(expenses);
         if (elc) elc.destroy();
         if (expLineEl)
             elc = new Chart(expLineEl, {
@@ -430,7 +618,7 @@
                             borderColor: "#8c1f1f",
                             backgroundColor: "rgba(140,31,31,.07)",
                             borderWidth: 1.5,
-                            pointRadius: 4,
+                            pointRadius: 2,
                             pointBackgroundColor: "#8c1f1f",
                             tension: 0.4,
                             fill: true,
@@ -441,7 +629,7 @@
             });
 
         // revenues line
-        const rb = bucketByMonth(revenues);
+        const rb = bucketByDay(revenues);
         if (rlc) rlc.destroy();
         if (revLineEl)
             rlc = new Chart(revLineEl, {
@@ -455,7 +643,7 @@
                             borderColor: "#1a5c30",
                             backgroundColor: "rgba(26,92,48,.07)",
                             borderWidth: 1.5,
-                            pointRadius: 4,
+                            pointRadius: 2,
                             pointBackgroundColor: "#1a5c30",
                             tension: 0.4,
                             fill: true,
@@ -478,7 +666,10 @@
         const today = new Date().toISOString().split("T")[0];
         eDate = today;
         rDate = today;
+        tfDate = today;
         setPeriod("3m");
+        loadAccounts();
+        loadTransfers();
     });
 </script>
 
@@ -524,8 +715,9 @@
                 <span class="nav-tot-label">Balance</span>
                 <span
                     class="nav-tot-val"
-                    class:pos={balance >= 0}
-                    class:neg={balance < 0}>{brl(Math.abs(balance))}</span
+                    class:pos={totalAccountBalance >= 0}
+                    class:neg={totalAccountBalance < 0}
+                    >{brl(Math.abs(totalAccountBalance))}</span
                 >
             </div>
         </div>
@@ -591,6 +783,12 @@
                         </datalist>
                     </div>
                     <input class="ii t" type="date" bind:value={eDate} />
+                    <select class="ii tf-sel" bind:value={eAccountId}>
+                        <option value="">account</option>
+                        {#each accountBalances as a}
+                            <option value={a.id}>{a.name}</option>
+                        {/each}
+                    </select>
                     <button
                         class="abtn exp-abtn"
                         onclick={() => addEntry("expense")}>↵</button
@@ -628,6 +826,12 @@
                         </datalist>
                     </div>
                     <input class="ii t" type="date" bind:value={rDate} />
+                    <select class="ii tf-sel" bind:value={rAccountId}>
+                        <option value="">account</option>
+                        {#each accountBalances as a}
+                            <option value={a.id}>{a.name}</option>
+                        {/each}
+                    </select>
                     <button
                         class="abtn rev-abtn"
                         onclick={() => addEntry("revenue")}>↵</button
@@ -727,15 +931,78 @@
                 <div class="drule"></div>
                 <div class="sec-label" style="margin-top:10px;">ledger</div>
                 {#each ledgerSorted as r}
-                    <div class="row row-3">
-                        <span
-                            class="val"
-                            class:exp={r.type === "expense"}
-                            class:rev={r.type === "revenue"}>{brl(r.val)}</span
-                        >
-                        <span class="meta">{r.desc} · {r.cat}</span>
-                        <span class="dt">{fdt(r.date)}</span>
-                    </div>
+                    {#if editingId === r.id}
+                        <div class="edit-row">
+                            <select
+                                class="ii tf-sel edit-type-sel"
+                                bind:value={editType}
+                            >
+                                <option value="expense">expense</option>
+                                <option value="revenue">revenue</option>
+                            </select>
+                            <input
+                                class="ii v"
+                                type="number"
+                                step=".01"
+                                min="0"
+                                bind:value={editVal}
+                            />
+                            <input
+                                class="ii d"
+                                type="text"
+                                placeholder="description"
+                                bind:value={editDesc}
+                            />
+                            <input
+                                class="ii cat-ii"
+                                type="text"
+                                placeholder="category"
+                                bind:value={editCat}
+                            />
+                            <input
+                                class="ii t"
+                                type="date"
+                                bind:value={editDate}
+                            />
+                            <select
+                                class="ii tf-sel"
+                                bind:value={editAccountId}
+                            >
+                                <option value="">no account</option>
+                                {#each accountBalances as a}
+                                    <option value={a.id}>{a.name}</option>
+                                {/each}
+                            </select>
+                            <button class="abtn rev-abtn" onclick={saveEdit}
+                                >✓</button
+                            >
+                            <button
+                                class="abtn"
+                                style="background:none;color:var(--ink-faint);"
+                                onclick={cancelEdit}>✕</button
+                            >
+                        </div>
+                    {:else}
+                        <div class="row row-ledger">
+                            <span
+                                class="val"
+                                class:exp={r.type === "expense"}
+                                class:rev={r.type === "revenue"}
+                                >{brl(r.val)}</span
+                            >
+                            <span class="meta"
+                                >{r.desc} · {r.cat}{r.account_id
+                                    ? " · " + accountMap[r.account_id]
+                                    : ""}</span
+                            >
+                            <span class="dt">{fdt(r.date)}</span>
+                            <button
+                                class="row-edit-btn"
+                                onclick={() => startEdit(r)}
+                                title="edit">✎</button
+                            >
+                        </div>
+                    {/if}
                 {/each}
             </div>
             <div class="vdiv"></div>
@@ -760,6 +1027,112 @@
                         class:up={varExp !== null && varExp <= 0}
                         >{fmtVar(varExp)}</span
                     >
+                </div>
+            </div>
+        </div>
+        <!-- ══ SECTION 6 — Accounts & Transfers ══ -->
+        <div class="block-section">
+            <div class="block-title acct">accounts</div>
+
+            <div class="acct-body">
+                <!-- Account cards -->
+                <div class="acct-cards">
+                    {#each accountBalances as a}
+                        <div class="acct-card">
+                            <span class="acct-card-name">{a.name}</span>
+                            <span
+                                class="acct-card-bal"
+                                class:pos={a.balance >= 0}
+                                class:neg={a.balance < 0}>{brl(a.balance)}</span
+                            >
+                            <button
+                                class="acct-del"
+                                onclick={() => deleteAccount(a.id)}
+                                title="delete account">×</button
+                            >
+                        </div>
+                    {/each}
+
+                    <!-- Add account inline -->
+                    <div class="acct-add-row">
+                        <input
+                            class="ii d"
+                            type="text"
+                            placeholder="account name"
+                            bind:value={aName}
+                            onkeydown={(e) => e.key === "Enter" && addAccount()}
+                        />
+                        <input
+                            class="ii v"
+                            type="number"
+                            placeholder="initial balance"
+                            step=".01"
+                            bind:value={aInitial}
+                            onkeydown={(e) => e.key === "Enter" && addAccount()}
+                        />
+                        <button class="abtn" onclick={addAccount}>↵</button>
+                    </div>
+                </div>
+
+                <div class="vdiv"></div>
+
+                <!-- Transfer form + list -->
+                <div class="vcol">
+                    <div class="sec-label" style="margin-bottom:10px;">
+                        record transfer
+                    </div>
+                    <div class="tf-form">
+                        <select class="ii tf-sel" bind:value={tfFrom}>
+                            <option value="" disabled>from</option>
+                            {#each accountBalances as a}
+                                <option value={a.id}>{a.name}</option>
+                            {/each}
+                        </select>
+                        <span class="tf-arrow">→</span>
+                        <select class="ii tf-sel" bind:value={tfTo}>
+                            <option value="" disabled>to</option>
+                            {#each accountBalances as a}
+                                <option value={a.id}>{a.name}</option>
+                            {/each}
+                        </select>
+                        <input
+                            class="ii v"
+                            type="number"
+                            placeholder="R$ 0,00"
+                            step=".01"
+                            min="0"
+                            bind:value={tfAmount}
+                        />
+                        <input
+                            class="ii d"
+                            type="text"
+                            placeholder="description"
+                            bind:value={tfDesc}
+                        />
+                        <input class="ii t" type="date" bind:value={tfDate} />
+                        <button class="abtn" onclick={addTransfer}>↵</button>
+                    </div>
+
+                    <div class="drule" style="margin:12px 0 8px;"></div>
+
+                    {#each transfers as t}
+                        <div class="row tf-row">
+                            <span class="tf-route">
+                                {t.from_account_name} → {t.to_account_name}
+                            </span>
+                            <span class="val pos">{brl(t.amount)}</span>
+                            <span class="meta"
+                                >{t.desc ? t.desc + " · " : ""}{fdt(
+                                    t.date,
+                                )}</span
+                            >
+                            <button
+                                class="acct-del"
+                                onclick={() => deleteTransfer(t.id!)}
+                                title="delete transfer">×</button
+                            >
+                        </div>
+                    {/each}
                 </div>
             </div>
         </div>
@@ -918,7 +1291,10 @@
         padding: 2px 10px;
         cursor: pointer;
         line-height: 1.4;
-        transition: background 0.15s, color 0.15s, border-color 0.15s;
+        transition:
+            background 0.15s,
+            color 0.15s,
+            border-color 0.15s;
         width: 76px;
         text-align: center;
     }
@@ -972,6 +1348,9 @@
     }
     .block-title.rev {
         color: var(--green);
+    }
+    .block-title.acct {
+        color: var(--ink-mid);
     }
 
     /* ── ROWS ── */
@@ -1226,5 +1605,129 @@
         display: block;
         border-top: 1px solid var(--rule-dark);
         margin-top: 3px;
+    }
+
+    /* ── ACCOUNTS ── */
+    .acct-body {
+        display: grid;
+        grid-template-columns: auto 1px 1fr;
+        gap: 0 24px;
+        align-items: start;
+    }
+    .acct-cards {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 260px;
+    }
+    .acct-card {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        padding: 8px 10px;
+        border: 1.5px solid var(--rule-dark);
+        border-radius: 4px;
+        position: relative;
+    }
+    .acct-card-name {
+        font-family: "Caveat Brush", cursive;
+        font-size: 16px;
+        color: var(--ink-mid);
+        flex: 1;
+    }
+    .acct-card-bal {
+        font-size: 20px;
+        font-weight: 700;
+    }
+    .acct-card-bal.pos {
+        color: var(--green);
+    }
+    .acct-card-bal.neg {
+        color: var(--red);
+    }
+    .acct-del {
+        background: none;
+        border: none;
+        color: var(--ink-faint);
+        font-size: 18px;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0 2px;
+        margin-left: 4px;
+    }
+    .acct-del:hover {
+        color: var(--red);
+    }
+    .acct-add-row {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        margin-top: 4px;
+    }
+    .tf-form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+    }
+    .tf-sel {
+        background: var(--paper);
+        border: 1.5px solid var(--rule-dark);
+        border-radius: 3px;
+        color: var(--ink);
+        font-family: "Caveat", cursive;
+        font-size: 16px;
+        padding: 3px 6px;
+        cursor: pointer;
+    }
+    .tf-arrow {
+        color: var(--ink-faint);
+        font-size: 16px;
+    }
+    .tf-row {
+        display: grid;
+        grid-template-columns: 1fr auto auto auto;
+        gap: 10px;
+        align-items: baseline;
+    }
+    .tf-route {
+        font-family: "Caveat Brush", cursive;
+        font-size: 15px;
+        color: var(--ink-mid);
+    }
+    .row-ledger {
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        gap: 10px;
+        align-items: baseline;
+        padding: 2px 0;
+    }
+    .row-edit-btn {
+        background: none;
+        border: none;
+        color: var(--ink-faint);
+        font-size: 15px;
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+        opacity: 0;
+        transition: opacity 0.15s;
+    }
+    .row-ledger:hover .row-edit-btn {
+        opacity: 1;
+    }
+    .edit-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        align-items: center;
+        padding: 6px 0;
+        border-top: 1px dashed var(--rule);
+        border-bottom: 1px dashed var(--rule);
+        margin: 2px 0;
+    }
+    .edit-type-sel {
+        font-size: 13px;
+        padding: 2px 4px;
     }
 </style>

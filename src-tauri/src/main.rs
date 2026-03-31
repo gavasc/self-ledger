@@ -20,9 +20,17 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_transactions,
             commands::add_transaction,
+            commands::update_transaction,
             commands::delete_transaction,
             commands::export_json,
             commands::export_csv,
+            commands::get_accounts,
+            commands::add_account,
+            commands::delete_account,
+            commands::get_account_balances,
+            commands::get_transfers,
+            commands::add_transfer,
+            commands::delete_transfer,
         ])
         .run(tauri::generate_context!())
         .expect("error running tauri app");
