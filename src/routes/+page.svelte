@@ -13,6 +13,20 @@
         val: number;
         date: string;
         account_id?: number | null;
+        installment_id?: number | null;
+        installment_index?: number | null;
+    }
+
+    interface Installment {
+        id?: number;
+        desc: string;
+        cat: string;
+        total_val: number;
+        n_installments: number;
+        start_date: string;
+        account_id?: number | null;
+        paid_count?: number;
+        monthly_val?: number;
     }
 
     interface Account {
@@ -67,6 +81,11 @@
     let editDate = $state("");
     let editAccountId = $state<number | "">("");
 
+    // installments
+    let installments = $state<Installment[]>([]);
+    let eInstallMode = $state(false);
+    let eInstallN = $state("");
+
     // dynamic category lists derived from all records ever loaded
     let expCategories = $derived(
         [
@@ -93,10 +112,12 @@
     let totalRev = $derived(revenues.reduce((s, r) => s + r.val, 0));
     let balance = $derived(totalRev - totalExp);
     let last4 = $derived(
-        [...records].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4),
+        [...records].sort((a, b) => b.id - a.id).slice(0, 4),
     );
     let ledgerSorted = $derived(
-        [...filtered].sort((a, b) => b.date.localeCompare(a.date)),
+        [...filtered].sort((a, b) =>
+            b.date.localeCompare(a.date) || b.id - a.id,
+        ),
     );
 
     // ── Notes ─────────────────────────────────────────────────
@@ -356,6 +377,12 @@
         ) as Record<number, string>,
     );
 
+    let installmentMap = $derived(
+        Object.fromEntries(
+            installments.map((i) => [i.id!, i]),
+        ) as Record<number, Installment>,
+    );
+
     async function addEntry(type: "expense" | "revenue") {
         const isExp = type === "expense";
         const val = parseFloat(isExp ? eVal : rVal);
@@ -386,6 +413,59 @@
             await loadAccounts();
         } catch (e) {
             console.error("add_transaction failed:", e);
+        }
+    }
+
+    async function loadInstallments() {
+        try {
+            installments = await invoke<Installment[]>("get_installments");
+        } catch (e) {
+            console.error("get_installments failed:", e);
+        }
+    }
+
+    async function addInstallment() {
+        const val = parseFloat(eVal);
+        const desc = eDesc.trim();
+        const cat = eCat.trim();
+        const n = parseInt(eInstallN);
+        const account_id = eAccountId === "" ? null : eAccountId;
+        if (!desc || isNaN(val) || val <= 0 || !eDate || !cat || isNaN(n) || n < 2) return;
+        try {
+            await invoke("add_installment", {
+                installment: { desc, cat, total_val: val, n_installments: n, start_date: eDate, account_id },
+            });
+            eVal = "";
+            eDesc = "";
+            eInstallN = "";
+            eInstallMode = false;
+            await loadRecords();
+            await loadAccounts();
+            await loadInstallments();
+        } catch (e) {
+            console.error("add_installment failed:", e);
+        }
+    }
+
+    async function deleteInstallment(id: number) {
+        try {
+            await invoke("delete_installment", { id });
+            await loadRecords();
+            await loadAccounts();
+            await loadInstallments();
+        } catch (e) {
+            console.error("delete_installment failed:", e);
+        }
+    }
+
+    async function deleteEntry(id: number) {
+        try {
+            await invoke("delete_transaction", { id });
+            editingId = null;
+            await loadRecords();
+            await loadAccounts();
+        } catch (e) {
+            console.error("delete_transaction failed:", e);
         }
     }
 
@@ -693,6 +773,7 @@
         setPeriod("3m");
         loadAccounts();
         loadTransfers();
+        loadInstallments();
     });
 </script>
 
@@ -812,9 +893,31 @@
                             <option value={a.id}>{a.name}</option>
                         {/each}
                     </select>
+                    {#if eInstallMode}
+                        <input
+                            class="ii install-n-ii exp-ii"
+                            type="number"
+                            placeholder="× n"
+                            min="2"
+                            step="1"
+                            bind:value={eInstallN}
+                        />
+                        <button
+                            class="abtn exp-abtn"
+                            onclick={addInstallment}
+                            title="add as installments">÷↵</button
+                        >
+                    {:else}
+                        <button
+                            class="abtn exp-abtn"
+                            onclick={() => addEntry("expense")}>↵</button
+                        >
+                    {/if}
                     <button
-                        class="abtn exp-abtn"
-                        onclick={() => addEntry("expense")}>↵</button
+                        class="abtn install-toggle"
+                        class:active={eInstallMode}
+                        onclick={() => { eInstallMode = !eInstallMode; eInstallN = ""; }}
+                        title="split into installments">÷</button
                     >
                 </div>
 
@@ -1008,6 +1111,11 @@
                                 style="background:none;color:var(--ink-faint);"
                                 onclick={cancelEdit}>✕</button
                             >
+                            <button
+                                class="acct-del edit-del-btn"
+                                onclick={() => deleteEntry(editingId!)}
+                                title="delete record">×</button
+                            >
                         </div>
                     {:else}
                         <div class="row row-ledger">
@@ -1018,7 +1126,9 @@
                                 >{brl(r.val)}</span
                             >
                             <span class="meta"
-                                >{r.desc} · {r.cat}{r.account_id
+                                >{r.desc} · {r.cat}{r.installment_id && installmentMap[r.installment_id]
+                                    ? ` (${r.installment_index}/${installmentMap[r.installment_id].n_installments})`
+                                    : ""}{r.account_id
                                     ? " · " + accountMap[r.account_id]
                                     : ""}</span
                             >
@@ -1163,6 +1273,38 @@
                 </div>
             </div>
         </div>
+        <!-- ══ SECTION 7 — Installments ══ -->
+        {#if installments.length > 0}
+        <div class="block-section">
+            <div class="block-title inst">installments</div>
+            <div class="inst-list">
+                {#each installments as inst}
+                    <div class="inst-row">
+                        <div class="inst-info">
+                            <span class="inst-desc">{inst.desc}</span>
+                            <span class="inst-cat">{inst.cat}</span>
+                            {#if inst.account_id && accountMap[inst.account_id]}
+                                <span class="inst-acct">{accountMap[inst.account_id]}</span>
+                            {/if}
+                        </div>
+                        <div class="inst-numbers">
+                            <span class="inst-monthly exp">{brl(inst.monthly_val ?? 0)}</span>
+                            <span class="inst-x">×</span>
+                            <span class="inst-n">{inst.n_installments}×</span>
+                            <span class="inst-total">{brl(inst.total_val)}</span>
+                            <span class="inst-from">{fdt(inst.start_date)}</span>
+                            <span class="inst-progress">({inst.paid_count}/{inst.n_installments})</span>
+                        </div>
+                        <button
+                            class="acct-del"
+                            onclick={() => deleteInstallment(inst.id!)}
+                            title="delete installment plan">×</button
+                        >
+                    </div>
+                {/each}
+            </div>
+        </div>
+        {/if}
     </div>
 </div>
 
@@ -1756,5 +1898,95 @@
     .edit-type-sel {
         font-size: 13px;
         padding: 2px 4px;
+    }
+    .edit-del-btn {
+        margin-left: 8px;
+    }
+
+    /* ── INSTALLMENTS ── */
+    .block-title.inst {
+        color: var(--ink-mid);
+    }
+    .inst-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+    .inst-row {
+        display: flex;
+        align-items: baseline;
+        gap: 16px;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--rule);
+    }
+    .inst-info {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        flex: 1;
+    }
+    .inst-desc {
+        font-size: 17px;
+        color: var(--ink);
+    }
+    .inst-cat {
+        font-size: 14px;
+        color: var(--ink-faint);
+    }
+    .inst-acct {
+        font-size: 13px;
+        color: var(--ink-faint);
+        font-style: italic;
+    }
+    .inst-numbers {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+    }
+    .inst-monthly {
+        font-size: 18px;
+        font-weight: 700;
+    }
+    .inst-x {
+        font-size: 14px;
+        color: var(--ink-faint);
+    }
+    .inst-n {
+        font-size: 16px;
+        color: var(--ink-mid);
+    }
+    .inst-total {
+        font-size: 15px;
+        color: var(--ink-faint);
+    }
+    .inst-from {
+        font-size: 13px;
+        color: var(--ink-faint);
+    }
+    .inst-progress {
+        font-size: 13px;
+        color: var(--ink-faint);
+        font-style: italic;
+    }
+    .install-n-ii {
+        width: 52px;
+    }
+    .install-toggle {
+        color: var(--ink-faint);
+        font-size: 15px;
+        opacity: 0.6;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        padding: 0 3px;
+        transition: all 0.15s;
+    }
+    .install-toggle:hover {
+        opacity: 1;
+        color: var(--red);
+    }
+    .install-toggle.active {
+        opacity: 1;
+        color: var(--red);
+        border-color: var(--red);
     }
 </style>

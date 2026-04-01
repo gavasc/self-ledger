@@ -11,6 +11,21 @@ pub struct Transaction {
     pub val: f64,
     pub date: String,
     pub account_id: Option<i64>,
+    pub installment_id: Option<i64>,
+    pub installment_index: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Installment {
+    pub id: Option<i64>,
+    pub desc: String,
+    pub cat: String,
+    pub total_val: f64,
+    pub n_installments: i64,
+    pub start_date: String,
+    pub account_id: Option<i64>,
+    pub paid_count: Option<i64>,
+    pub monthly_val: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -69,10 +84,27 @@ pub fn init(conn: &Connection) -> Result<()> {
             content     TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (section, period_from, period_to)
         );
+        CREATE TABLE IF NOT EXISTS installments (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            desc           TEXT    NOT NULL,
+            cat            TEXT    NOT NULL,
+            total_val      REAL    NOT NULL,
+            n_installments INTEGER NOT NULL,
+            start_date     TEXT    NOT NULL,
+            account_id     INTEGER REFERENCES accounts(id)
+        );
     ")?;
-    // Migration: add account_id to transactions (ignored if column already exists)
+    // Migrations (ignored if column already exists)
     let _ = conn.execute(
         "ALTER TABLE transactions ADD COLUMN account_id INTEGER REFERENCES accounts(id)",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE transactions ADD COLUMN installment_id INTEGER REFERENCES installments(id)",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE transactions ADD COLUMN installment_index INTEGER",
         [],
     );
     Ok(())
@@ -101,20 +133,22 @@ pub fn update(conn: &Connection, t: &Transaction) -> Result<()> {
 
 pub fn query(conn: &Connection, from: &str, to: &str) -> Result<Vec<Transaction>> {
     let mut stmt = conn.prepare(
-        "SELECT id, type, desc, cat, val, date, account_id
+        "SELECT id, type, desc, cat, val, date, account_id, installment_id, installment_index
          FROM transactions
          WHERE date >= ?1 AND date <= ?2
          ORDER BY date DESC"
     )?;
     let rows = stmt.query_map(params![from, to], |row| {
         Ok(Transaction {
-            id:         Some(row.get(0)?),
-            type_:      row.get(1)?,
-            desc:       row.get(2)?,
-            cat:        row.get(3)?,
-            val:        row.get(4)?,
-            date:       row.get(5)?,
-            account_id: row.get(6)?,
+            id:                Some(row.get(0)?),
+            type_:             row.get(1)?,
+            desc:              row.get(2)?,
+            cat:               row.get(3)?,
+            val:               row.get(4)?,
+            date:              row.get(5)?,
+            account_id:        row.get(6)?,
+            installment_id:    row.get(7)?,
+            installment_index: row.get(8)?,
         })
     })?;
     rows.collect()
@@ -127,17 +161,19 @@ pub fn delete(conn: &Connection, id: i64) -> Result<()> {
 
 pub fn export_json(conn: &Connection) -> Result<String> {
     let mut stmt = conn.prepare(
-        "SELECT id, type, desc, cat, val, date, account_id FROM transactions ORDER BY date DESC"
+        "SELECT id, type, desc, cat, val, date, account_id, installment_id, installment_index FROM transactions ORDER BY date DESC"
     )?;
     let transactions: Vec<Transaction> = stmt.query_map([], |row| {
         Ok(Transaction {
-            id:         Some(row.get(0)?),
-            type_:      row.get(1)?,
-            desc:       row.get(2)?,
-            cat:        row.get(3)?,
-            val:        row.get(4)?,
-            date:       row.get(5)?,
-            account_id: row.get(6)?,
+            id:                Some(row.get(0)?),
+            type_:             row.get(1)?,
+            desc:              row.get(2)?,
+            cat:               row.get(3)?,
+            val:               row.get(4)?,
+            date:              row.get(5)?,
+            account_id:        row.get(6)?,
+            installment_id:    row.get(7)?,
+            installment_index: row.get(8)?,
         })
     })?.collect::<Result<Vec<_>>>()?;
 
@@ -184,11 +220,14 @@ pub fn export_json(conn: &Connection) -> Result<String> {
     }))
     .collect();
 
+    let installments = get_installments(conn)?;
+
     let out = serde_json::json!({
         "transactions": transactions,
         "accounts":     accounts,
         "transfers":    transfers,
         "notes":        notes,
+        "installments": installments,
     });
     Ok(serde_json::to_string_pretty(&out).unwrap())
 }
@@ -198,9 +237,9 @@ pub fn export_csv(conn: &Connection) -> Result<String> {
 
     // transactions
     csv.push_str("transactions\n");
-    csv.push_str("id,type,desc,cat,val,date,account_id\n");
+    csv.push_str("id,type,desc,cat,val,date,account_id,installment_id,installment_index\n");
     let mut stmt = conn.prepare(
-        "SELECT id, type, desc, cat, val, date, account_id FROM transactions ORDER BY date DESC"
+        "SELECT id, type, desc, cat, val, date, account_id, installment_id, installment_index FROM transactions ORDER BY date DESC"
     )?;
     for row in stmt.query_map([], |row| {
         Ok((
@@ -211,11 +250,15 @@ pub fn export_csv(conn: &Connection) -> Result<String> {
             row.get::<_, f64>(4)?,
             row.get::<_, String>(5)?,
             row.get::<_, Option<i64>>(6)?,
+            row.get::<_, Option<i64>>(7)?,
+            row.get::<_, Option<i64>>(8)?,
         ))
     })? {
-        let (id, type_, desc, cat, val, date, account_id) = row?;
+        let (id, type_, desc, cat, val, date, account_id, installment_id, installment_index) = row?;
         let acct = account_id.map(|v| v.to_string()).unwrap_or_default();
-        csv.push_str(&format!("{},{},{},{},{:.2},{},{}\n", id, type_, desc, cat, val, date, acct));
+        let inst_id = installment_id.map(|v| v.to_string()).unwrap_or_default();
+        let inst_idx = installment_index.map(|v| v.to_string()).unwrap_or_default();
+        csv.push_str(&format!("{},{},{},{},{:.2},{},{},{},{}\n", id, type_, desc, cat, val, date, acct, inst_id, inst_idx));
     }
 
     // accounts
@@ -363,6 +406,73 @@ pub fn get_transfers(conn: &Connection) -> Result<Vec<Transfer>> {
 
 pub fn delete_transfer(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM transfers WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+// ── Installments ──────────────────────────────────────────────────────────────
+
+pub fn insert_installment(conn: &Connection, inst: &Installment) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO installments (desc, cat, total_val, n_installments, start_date, account_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![inst.desc, inst.cat, inst.total_val, inst.n_installments, inst.start_date, inst.account_id],
+    )?;
+    let installment_id = conn.last_insert_rowid();
+
+    let monthly = inst.total_val / inst.n_installments as f64;
+
+    let parts: Vec<&str> = inst.start_date.split('-').collect();
+    let mut year  = parts.first().and_then(|s| s.parse::<i32>().ok()).unwrap_or(2024);
+    let mut month = parts.get(1).and_then(|s| s.parse::<u32>().ok()).unwrap_or(1);
+    let day       = parts.get(2).and_then(|s| s.parse::<u32>().ok()).unwrap_or(1);
+
+    for i in 0..inst.n_installments {
+        let date = format!("{:04}-{:02}-{:02}", year, month, day);
+        conn.execute(
+            "INSERT INTO transactions (type, desc, cat, val, date, account_id, installment_id, installment_index)
+             VALUES ('expense', ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![inst.desc, inst.cat, monthly, date, inst.account_id, installment_id, i + 1],
+        )?;
+        month += 1;
+        if month > 12 {
+            month = 1;
+            year += 1;
+        }
+    }
+
+    Ok(installment_id)
+}
+
+pub fn get_installments(conn: &Connection) -> Result<Vec<Installment>> {
+    let mut stmt = conn.prepare("
+        SELECT i.id, i.desc, i.cat, i.total_val, i.n_installments, i.start_date, i.account_id,
+               COUNT(t.id) as paid_count
+        FROM installments i
+        LEFT JOIN transactions t ON t.installment_id = i.id
+        GROUP BY i.id
+        ORDER BY i.start_date DESC
+    ")?;
+    let rows = stmt.query_map([], |row| {
+        let n: i64    = row.get(4)?;
+        let total: f64 = row.get(3)?;
+        Ok(Installment {
+            id:             Some(row.get(0)?),
+            desc:           row.get(1)?,
+            cat:            row.get(2)?,
+            total_val:      total,
+            n_installments: n,
+            start_date:     row.get(5)?,
+            account_id:     row.get(6)?,
+            paid_count:     Some(row.get(7)?),
+            monthly_val:    Some(total / n as f64),
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn delete_installment(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM transactions WHERE installment_id = ?1", params![id])?;
+    conn.execute("DELETE FROM installments WHERE id = ?1", params![id])?;
     Ok(())
 }
 

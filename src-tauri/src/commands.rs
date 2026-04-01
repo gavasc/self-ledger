@@ -1,5 +1,5 @@
 use crate::db;
-use crate::db::{Transaction, Account, Transfer};
+use crate::db::{Transaction, Account, Transfer, Installment};
 
 use rusqlite::Connection;
 use std::sync::Mutex;
@@ -114,6 +114,32 @@ pub fn delete_transfer(
 ) -> Result<(), String> {
     let conn = state.0.lock().unwrap();
     db::delete_transfer(&conn, id).map_err(|e| e.to_string())
+}
+
+// ── Installments ─────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn add_installment(
+    state: State<DbConn>,
+    installment: Installment,
+) -> Result<i64, String> {
+    let conn = state.0.lock().unwrap();
+    db::insert_installment(&conn, &installment).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_installments(state: State<DbConn>) -> Result<Vec<Installment>, String> {
+    let conn = state.0.lock().unwrap();
+    db::get_installments(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_installment(
+    state: State<DbConn>,
+    id: i64,
+) -> Result<(), String> {
+    let conn = state.0.lock().unwrap();
+    db::delete_installment(&conn, id).map_err(|e| e.to_string())
 }
 
 // ── Notes ─────────────────────────────────────────────────────────────────────
