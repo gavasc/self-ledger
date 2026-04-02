@@ -1335,7 +1335,7 @@
         content: "";
         position: fixed;
         inset: 0;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.07'/%3E%3C/svg%3E");
         pointer-events: none;
         z-index: 999;
     }
@@ -1352,7 +1352,8 @@
         display: grid;
         grid-template-columns: 1fr auto 1fr;
         align-items: center;
-        border-bottom: 2px solid var(--ink-mid);
+        border-bottom: 2.5px solid var(--ink);
+        box-shadow: 0 4.5px 0 rgba(28, 20, 13, 0.16);
         min-height: 64px;
     }
     .brand {
@@ -1489,11 +1490,26 @@
     .section.wide-left {
         grid-template-columns: 60fr 2px 40fr;
     }
+    /* ── SECTION SEPARATORS (hand-drawn double-line) ── */
+    .section ~ .section,
+    .section ~ .block-section,
+    .block-section ~ .section,
+    .block-section ~ .block-section {
+        border-top: 1.5px solid var(--rule-dark);
+        box-shadow: inset 0 4px 0 0 rgba(154, 138, 116, 0.28);
+    }
     .vcol {
         padding: 28px 24px;
     }
     .vdiv {
         width: 2px;
+        background: linear-gradient(
+            to bottom,
+            transparent 0%,
+            var(--rule-dark) 5%,
+            var(--rule-dark) 95%,
+            transparent 100%
+        );
     }
 
     /* ── TITLES ── */
@@ -1504,13 +1520,38 @@
         text-transform: uppercase;
         color: var(--ink-faint);
         margin-bottom: 10px;
+        border-left: 2.5px solid var(--rule-dark);
+        padding-left: 7px;
     }
     .block-title {
         font-family: "Caveat Brush", cursive;
         font-size: 28px;
-        padding-bottom: 6px;
+        padding-bottom: 8px;
         margin-bottom: 12px;
-        border-bottom: 1.5px solid currentColor;
+        position: relative;
+    }
+    .block-title::after {
+        content: "";
+        position: absolute;
+        bottom: 2px;
+        left: -1px;
+        right: 5px;
+        height: 2.5px;
+        background: currentColor;
+        border-radius: 2px;
+        transform: rotate(-0.2deg);
+        opacity: 0.9;
+    }
+    .block-title::before {
+        content: "";
+        position: absolute;
+        bottom: -1px;
+        left: 4px;
+        right: 1px;
+        height: 1px;
+        background: currentColor;
+        opacity: 0.28;
+        transform: rotate(0.15deg);
     }
     .block-title.exp {
         color: var(--red);
