@@ -23,6 +23,7 @@
         SaveBackupConfig,
         BackupNow,
         RestoreFromBackup,
+        AutoRestoreIfNeeded,
     } from "../../wailsjs/go/main/App";
 
     interface Transaction {
@@ -858,16 +859,28 @@
     });
 
     // ── Init ──────────────────────────────────────────────────
-    onMount(() => {
+    onMount(async () => {
         const today = new Date().toISOString().split("T")[0];
         eDate = today;
         rDate = today;
         tfDate = today;
+
+        // Load backup config first so AutoRestoreIfNeeded can use it.
+        await loadBackupConfig();
+        try {
+            const restored = await AutoRestoreIfNeeded();
+            if (restored) {
+                backupStatus = "auto-restored from backup";
+            }
+        } catch (e) {
+            console.error("auto-restore on startup failed:", e);
+        }
+
+        // Load data — if a restore just happened this will see the restored DB.
         setPeriod("3m");
         loadAccounts();
         loadTransfers();
         loadInstallments();
-        loadBackupConfig();
     });
 </script>
 

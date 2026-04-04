@@ -88,6 +88,22 @@ func NewDB(path string) (*DB, error) {
 
 func (db *DB) Close() { db.conn.Close() }
 
+// IsEmpty returns true when the database has no accounts and no transactions,
+// i.e. the app has never been used on this machine.
+func (db *DB) IsEmpty() (bool, error) {
+	var n int
+	if err := db.conn.QueryRow("SELECT COUNT(*) FROM accounts").Scan(&n); err != nil {
+		return false, err
+	}
+	if n > 0 {
+		return false, nil
+	}
+	if err := db.conn.QueryRow("SELECT COUNT(*) FROM transactions").Scan(&n); err != nil {
+		return false, err
+	}
+	return n == 0, nil
+}
+
 func (db *DB) init() error {
 	_, err := db.conn.Exec(`
 		CREATE TABLE IF NOT EXISTS transactions (

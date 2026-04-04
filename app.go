@@ -153,6 +153,35 @@ func (a *App) SaveBackupConfig(cfg BackupConfig) error {
 	return a.bm.SaveConfig(cfg)
 }
 
+// AutoRestoreIfNeeded checks on startup whether the local database is empty
+// and a backup is configured. If so, it fetches and imports the remote backup
+// automatically. Returns true if a restore was performed.
+//
+// Errors from fetching (e.g. remote not yet initialised) are treated as
+// non-fatal — the app just starts with an empty DB as usual.
+func (a *App) AutoRestoreIfNeeded() (bool, error) {
+	if a.bm == nil {
+		return false, nil
+	}
+	cfg, err := a.bm.LoadConfig()
+	if err != nil || cfg.Repo == "" {
+		return false, nil
+	}
+	empty, err := a.db.IsEmpty()
+	if err != nil || !empty {
+		return false, err
+	}
+	jsonData, err := a.bm.FetchBackup()
+	if err != nil {
+		// Remote may not have a backup yet — not an error the user needs to see.
+		return false, nil
+	}
+	if err := a.db.ImportJSON(jsonData); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (a *App) BackupNow() error {
 	if a.bm == nil {
 		return fmt.Errorf("backup manager unavailable")
