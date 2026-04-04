@@ -76,7 +76,7 @@ func NewDB(path string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Serialize all access through a single connection (mirrors Rust's Mutex<Connection>)
+	// Serialize all access through a single connection.
 	conn.SetMaxOpenConns(1)
 	db := &DB{conn: conn}
 	if err := db.init(); err != nil {

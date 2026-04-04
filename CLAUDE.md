@@ -55,8 +55,9 @@ To develop, run `wails dev` from the repo root — this starts both the Vite dev
 ```
 Frontend (SvelteKit/Svelte 5)  ──wailsjs──►  Backend (Wails/Go)  ──►  SQLite
 frontend/src/routes/+page.svelte             main.go    (app init, window config)
-                                             app.go     (IPC handlers — all 18 methods)
+                                             app.go     (IPC handlers — all 22 methods)
                                              db.go      (SQLite operations, all structs)
+                                             backup.go  (git-based backup/restore logic)
 ```
 
 ### Frontend files
@@ -81,9 +82,11 @@ This is the entire UI — a single Svelte 5 file. Key patterns:
 
 ### Backend
 
-**`main.go`** — Initializes Wails, opens SQLite at `os.UserConfigDir()/self-ledger/self_ledger.db`, embeds `frontend/build/` for production, sets window to 1800×950.
+**`main.go`** — Initializes Wails, opens SQLite at `os.UserConfigDir()/self-ledger/self_ledger.db`, embeds `frontend/build/` for production, sets window to 1900×980 (MaxWidth 1840). Registers `OnBeforeClose` to auto-backup on quit (10 s timeout).
 
-**`app.go`** — All 18 IPC method handlers. Exported methods on `*App` are automatically exposed to the frontend. Holds a `context.Context` (set in `startup`) for `runtime.SaveFileDialog`.
+**`app.go`** — All 22 IPC method handlers. Exported methods on `*App` are automatically exposed to the frontend. Holds a `context.Context` (set in `startup`) for `runtime.SaveFileDialog`. Also holds `*BackupManager`.
+
+**`backup.go`** — Git-based backup/restore. `BackupConfig` (provider, host, repo, token) is persisted as YAML at `~/.config/self-ledger/backup.yaml`. `BackupManager` shells out to `git` to clone/fetch/push a bare JSON snapshot to the configured remote.
 
 **`db.go`** — All database logic. Uses `modernc.org/sqlite` (pure Go, no CGO). Structs and tables:
 
@@ -170,6 +173,10 @@ balance = initial_balance
 | `AddInstallment(inst Installment)` | Create installment + pre-generate N monthly transactions |
 | `GetInstallments()` | List installments with paid count |
 | `DeleteInstallment(id int64)` | Cascade delete installment + its transactions |
+| `GetBackupConfig()` | Load backup config from YAML file |
+| `SaveBackupConfig(cfg BackupConfig)` | Persist backup config to YAML file |
+| `BackupNow()` | Export JSON + git commit + push to configured remote |
+| `RestoreFromBackup()` | Git fetch + full DB replace from remote JSON |
 
 ### Data Flow
 
@@ -179,6 +186,8 @@ balance = initial_balance
 4. Transfers: transfer form → `AddTransfer({...})` → reload accounts + transfers
 5. Charts: `$effect` watches `filtered` (derived from `records`) → destroys old Chart.js instances → creates new ones bucketed by day
 6. Export: `ExportJSON()`/`ExportCSV()` → Go calls `runtime.SaveFileDialog` → writes file
+7. Backup: `BackupNow()` → `ExportJSON()` → git commit + push to remote repo; `RestoreFromBackup()` → git fetch → `ImportJSON()` (full DB replace in one transaction)
+8. Auto-backup on close: `OnBeforeClose` fires → exports JSON + pushes to remote (10 s timeout) → window closes regardless
 
 ### Key Go State
 

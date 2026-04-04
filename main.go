@@ -74,7 +74,7 @@ func main() {
 }
 
 // resolveDBPath returns ~/.config/self-ledger/self_ledger.db, creating the
-// directory if needed. Matches Tauri's app_data_dir() on Linux.
+// directory if needed.
 func resolveDBPath() (string, error) {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
