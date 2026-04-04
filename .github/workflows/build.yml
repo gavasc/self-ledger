@@ -54,7 +54,7 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          gem install fpm --no-document
+          sudo gem install fpm --no-document
           mkdir -p build/packages
           cp build/bin/self-ledger build/packages/self-ledger
 
