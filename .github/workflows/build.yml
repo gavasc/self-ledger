@@ -40,7 +40,7 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev rpm
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -54,25 +54,11 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          sudo gem install fpm --no-document
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           mkdir -p build/packages
           cp build/bin/self-ledger build/packages/self-ledger
-
-          fpm -s dir -t deb \
-            -n self-ledger \
-            -v "$VERSION" \
-            --depends libwebkit2gtk-4.0-0 \
-            --depends libgtk-3-0 \
-            -p "build/packages/self-ledger-${VERSION}-amd64.deb" \
-            build/bin/self-ledger=/usr/local/bin/self-ledger
-
-          fpm -s dir -t rpm \
-            -n self-ledger \
-            -v "$VERSION" \
-            --depends webkit2gtk4.0 \
-            --depends gtk3 \
-            -p "build/packages/self-ledger-${VERSION}-x86_64.rpm" \
-            build/bin/self-ledger=/usr/local/bin/self-ledger
+          VERSION="$VERSION" nfpm package --packager deb --target build/packages/
+          VERSION="$VERSION" nfpm package --packager rpm --target build/packages/
 
       - name: Package macOS app bundle
         if: matrix.os == 'macos-latest'
