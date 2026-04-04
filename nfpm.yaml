@@ -9,7 +9,7 @@ contents:
     dst: /usr/local/bin/self-ledger
   - src: frontend/static/favicon.png
     dst: /usr/share/pixmaps/self-ledger.png
-  - src: build/self-ledger.desktop
+  - src: self-ledger.desktop
     dst: /usr/share/applications/self-ledger.desktop
 overrides:
   deb:

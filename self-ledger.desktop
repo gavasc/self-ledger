@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Self Ledger
+Comment=Local-first personal finance desktop app
+Exec=/usr/local/bin/self-ledger
+Icon=self-ledger
+Type=Application
+Categories=Finance;
+Terminal=false
