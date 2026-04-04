@@ -26,7 +26,7 @@
     } from "../../wailsjs/go/main/App";
 
     interface Transaction {
-        id: number;
+        id?: number;
         type: "expense" | "revenue";
         desc: string;
         cat: string;
@@ -131,10 +131,10 @@
     let totalExp = $derived(expenses.reduce((s, r) => s + r.val, 0));
     let totalRev = $derived(revenues.reduce((s, r) => s + r.val, 0));
     let balance = $derived(totalRev - totalExp);
-    let last4 = $derived([...records].sort((a, b) => b.id - a.id).slice(0, 4));
+    let last4 = $derived([...records].sort((a, b) => (b.id ?? 0) - (a.id ?? 0)).slice(0, 4));
     let ledgerSorted = $derived(
         [...filtered].sort(
-            (a, b) => b.date.localeCompare(a.date) || b.id - a.id,
+            (a, b) => b.date.localeCompare(a.date) || (b.id ?? 0) - (a.id ?? 0),
         ),
     );
 
@@ -430,7 +430,7 @@
     // ── Backend calls ─────────────────────────────────────────
     async function loadRecords() {
         try {
-            records = await GetTransactions(dateFrom, dateTo);
+            records = (await GetTransactions(dateFrom, dateTo)) as Transaction[];
         } catch (e) {
             console.error("get_transactions failed:", e);
         }
@@ -474,10 +474,10 @@
         const date = isExp ? eDate : rDate;
         const account_id = isExp
             ? eAccountId === ""
-                ? null
+                ? undefined
                 : eAccountId
             : rAccountId === ""
-              ? null
+              ? undefined
               : rAccountId;
         if (!desc || isNaN(val) || val <= 0 || !date || !cat) return;
 
@@ -510,7 +510,7 @@
         const desc = eDesc.trim();
         const cat = eCat.trim();
         const n = parseInt(eInstallN);
-        const account_id = eAccountId === "" ? null : eAccountId;
+        const account_id = eAccountId === "" ? undefined : eAccountId;
         if (
             !desc ||
             isNaN(val) ||
@@ -565,7 +565,7 @@
     }
 
     function startEdit(r: Transaction) {
-        editingId = r.id;
+        editingId = r.id ?? null;
         editType = r.type;
         editVal = String(r.val);
         editDesc = r.desc;
@@ -597,7 +597,7 @@
                 cat: editCat.trim(),
                 val,
                 date: editDate,
-                account_id: editAccountId === "" ? null : editAccountId,
+                account_id: editAccountId === "" ? undefined : editAccountId,
             });
             editingId = null;
             await loadRecords();
@@ -975,9 +975,7 @@
                             bind:value={eCat}
                         />
                         <datalist id="exp-cats-list">
-                            {#each expCategories as c}<option
-                                    value={c}
-                                />{/each}
+                            {#each expCategories as c}<option value={c}></option>{/each}
                         </datalist>
                     </div>
                     <input class="ii t" type="date" bind:value={eDate} />
@@ -1043,9 +1041,7 @@
                             bind:value={rCat}
                         />
                         <datalist id="rev-cats-list">
-                            {#each revCategories as c}<option
-                                    value={c}
-                                />{/each}
+                            {#each revCategories as c}<option value={c}></option>{/each}
                         </datalist>
                     </div>
                     <input class="ii t" type="date" bind:value={rDate} />
@@ -1964,15 +1960,6 @@
     .var-val.dn {
         color: var(--red);
     }
-    .var-title {
-        font-family: "Caveat Brush", cursive;
-        font-size: 13px;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: var(--ink-faint);
-        margin-bottom: 10px;
-    }
-
     /* ── DOUBLE RULE ── */
     .drule {
         border: none;
