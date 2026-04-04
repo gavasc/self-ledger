@@ -41,6 +41,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          mkdir -p /tmp/pkgconfig
+          printf 'Name: webkit2gtk-4.0\nDescription: webkit2gtk-4.1 shim\nVersion: 4.0\nRequires: webkit2gtk-4.1\nLibs:\nCflags:\n' \
+            > /tmp/pkgconfig/webkit2gtk-4.0.pc
+          echo "PKG_CONFIG_PATH=/tmp/pkgconfig" >> "$GITHUB_ENV"
 
       - name: Install frontend dependencies
         working-directory: frontend
