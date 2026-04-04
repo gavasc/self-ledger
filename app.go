@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -12,6 +13,7 @@ import (
 type App struct {
 	ctx context.Context
 	db  *DB
+	bm  *BackupManager
 }
 
 func NewApp(dbPath string) (*App, error) {
@@ -19,7 +21,12 @@ func NewApp(dbPath string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &App{db: db}, nil
+	bm, err := NewBackupManager()
+	if err != nil {
+		// Non-fatal: app runs normally without backup configured.
+		bm = nil
+	}
+	return &App{db: db, bm: bm}, nil
 }
 
 // startup is called by Wails after the app window is ready.
@@ -128,6 +135,44 @@ func (a *App) ExportJSON() error {
 		return err // nil when user cancelled
 	}
 	return os.WriteFile(path, []byte(data), 0644)
+}
+
+// ── Backup ────────────────────────────────────────────────────────────────────
+
+func (a *App) GetBackupConfig() (BackupConfig, error) {
+	if a.bm == nil {
+		return BackupConfig{}, nil
+	}
+	return a.bm.LoadConfig()
+}
+
+func (a *App) SaveBackupConfig(cfg BackupConfig) error {
+	if a.bm == nil {
+		return fmt.Errorf("backup manager unavailable")
+	}
+	return a.bm.SaveConfig(cfg)
+}
+
+func (a *App) BackupNow() error {
+	if a.bm == nil {
+		return fmt.Errorf("backup manager unavailable")
+	}
+	data, err := a.db.ExportJSON()
+	if err != nil {
+		return err
+	}
+	return a.bm.BackupNow(data)
+}
+
+func (a *App) RestoreFromBackup() error {
+	if a.bm == nil {
+		return fmt.Errorf("backup manager unavailable")
+	}
+	jsonData, err := a.bm.FetchBackup()
+	if err != nil {
+		return err
+	}
+	return a.db.ImportJSON(jsonData)
 }
 
 // ExportCSV opens a native save dialog and writes the full CSV export.

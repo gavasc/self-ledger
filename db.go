@@ -47,6 +47,13 @@ type AccountBalance struct {
 	Balance float64 `json:"balance"`
 }
 
+type AccountExport struct {
+	ID             *int64  `json:"id"`
+	Name           string  `json:"name"`
+	InitialBalance float64 `json:"initial_balance"`
+	Balance        float64 `json:"balance"`
+}
+
 type Transfer struct {
 	ID              *int64   `json:"id"`
 	FromAccountID   int64    `json:"from_account_id"`
@@ -415,7 +422,31 @@ func (db *DB) UpsertNote(section, from, to, content string) error {
 	return err
 }
 
-// ── Export ────────────────────────────────────────────────────────────────────
+// ── Export / Import ───────────────────────────────────────────────────────────
+
+func (db *DB) getAccountsForExport() ([]AccountExport, error) {
+	accs, err := db.GetAccounts()
+	if err != nil {
+		return nil, err
+	}
+	bals, err := db.GetAccountBalances()
+	if err != nil {
+		return nil, err
+	}
+	balMap := map[int64]float64{}
+	for _, b := range bals {
+		balMap[b.ID] = b.Balance
+	}
+	out := make([]AccountExport, len(accs))
+	for i, a := range accs {
+		bal := 0.0
+		if a.ID != nil {
+			bal = balMap[*a.ID]
+		}
+		out[i] = AccountExport{ID: a.ID, Name: a.Name, InitialBalance: a.InitialBalance, Balance: bal}
+	}
+	return out, nil
+}
 
 func (db *DB) ExportJSON() (string, error) {
 	// Transactions
@@ -432,7 +463,7 @@ func (db *DB) ExportJSON() (string, error) {
 	}
 
 	// Accounts
-	accounts, err := db.GetAccountBalances()
+	accounts, err := db.getAccountsForExport()
 	if err != nil {
 		return "", err
 	}
@@ -594,4 +625,113 @@ func int64PtrStr(v *int64) string {
 		return ""
 	}
 	return fmt.Sprintf("%d", *v)
+}
+
+// importTransfer holds only the columns needed for INSERT (no joined name fields).
+type importTransfer struct {
+	ID            *int64  `json:"id"`
+	FromAccountID int64   `json:"from_account_id"`
+	ToAccountID   int64   `json:"to_account_id"`
+	Amount        float64 `json:"amount"`
+	Date          string  `json:"date"`
+	Desc          string  `json:"desc"`
+}
+
+// exportNote matches the map[string]string shape written by ExportJSON.
+type exportNote struct {
+	Section  string `json:"section"`
+	DateFrom string `json:"date-from"`
+	DateTo   string `json:"date-to"`
+	Note     string `json:"note"`
+}
+
+type exportRoot struct {
+	Transactions []Transaction   `json:"transactions"`
+	Accounts     []AccountExport `json:"accounts"`
+	Transfers    []importTransfer `json:"transfers"`
+	Notes        []exportNote    `json:"notes"`
+	Installments []Installment   `json:"installments"`
+}
+
+// ImportJSON does a full replace: wipes all tables and reimports from the JSON
+// produced by ExportJSON. Runs in a single transaction; rolls back on any error.
+func (db *DB) ImportJSON(jsonStr string) error {
+	var root exportRoot
+	if err := json.Unmarshal([]byte(jsonStr), &root); err != nil {
+		return err
+	}
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	tx.Exec("PRAGMA foreign_keys = OFF")
+
+	for _, table := range []string{"transactions", "installments", "transfers", "notes", "accounts"} {
+		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
+			return err
+		}
+	}
+	tx.Exec("DELETE FROM sqlite_sequence WHERE name IN ('transactions','installments','transfers','accounts')")
+
+	for _, a := range root.Accounts {
+		if _, err := tx.Exec(
+			"INSERT INTO accounts (id, name, initial_balance) VALUES (?, ?, ?)",
+			a.ID, a.Name, a.InitialBalance,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, inst := range root.Installments {
+		if _, err := tx.Exec(
+			"INSERT INTO installments (id, desc, cat, total_val, n_installments, start_date, account_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			inst.ID, inst.Desc, inst.Cat, inst.TotalVal, inst.NInstallments, inst.StartDate, inst.AccountID,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, t := range root.Transactions {
+		if _, err := tx.Exec(
+			"INSERT INTO transactions (id, type, desc, cat, val, date, account_id, installment_id, installment_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			t.ID, t.Type, t.Desc, t.Cat, t.Val, t.Date, t.AccountID, t.InstallmentID, t.InstallmentIndex,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, tr := range root.Transfers {
+		if _, err := tx.Exec(
+			"INSERT INTO transfers (id, from_account_id, to_account_id, amount, date, desc) VALUES (?, ?, ?, ?, ?, ?)",
+			tr.ID, tr.FromAccountID, tr.ToAccountID, tr.Amount, tr.Date, tr.Desc,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, n := range root.Notes {
+		if _, err := tx.Exec(
+			"INSERT OR REPLACE INTO notes (section, period_from, period_to, content) VALUES (?, ?, ?, ?)",
+			n.Section, n.DateFrom, n.DateTo, n.Note,
+		); err != nil {
+			return err
+		}
+	}
+
+	// Restore AUTOINCREMENT counters so future inserts don't collide.
+	if _, err := tx.Exec(`
+		INSERT OR REPLACE INTO sqlite_sequence (name, seq) VALUES
+			('accounts',     (SELECT COALESCE(MAX(id), 0) FROM accounts)),
+			('installments', (SELECT COALESCE(MAX(id), 0) FROM installments)),
+			('transactions', (SELECT COALESCE(MAX(id), 0) FROM transactions)),
+			('transfers',    (SELECT COALESCE(MAX(id), 0) FROM transfers))
+	`); err != nil {
+		return err
+	}
+
+	tx.Exec("PRAGMA foreign_keys = ON")
+	return tx.Commit()
 }

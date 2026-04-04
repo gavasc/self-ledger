@@ -18,6 +18,10 @@ export function AddTransfer(arg1) {
   return window['go']['main']['App']['AddTransfer'](arg1);
 }
 
+export function BackupNow() {
+  return window['go']['main']['App']['BackupNow']();
+}
+
 export function Close() {
   return window['go']['main']['App']['Close']();
 }
@@ -54,6 +58,10 @@ export function GetAccounts() {
   return window['go']['main']['App']['GetAccounts']();
 }
 
+export function GetBackupConfig() {
+  return window['go']['main']['App']['GetBackupConfig']();
+}
+
 export function GetInstallments() {
   return window['go']['main']['App']['GetInstallments']();
 }
@@ -68,6 +76,14 @@ export function GetTransactions(arg1, arg2) {
 
 export function GetTransfers() {
   return window['go']['main']['App']['GetTransfers']();
+}
+
+export function RestoreFromBackup() {
+  return window['go']['main']['App']['RestoreFromBackup']();
+}
+
+export function SaveBackupConfig(arg1) {
+  return window['go']['main']['App']['SaveBackupConfig'](arg1);
 }
 
 export function SaveNote(arg1, arg2, arg3, arg4) {

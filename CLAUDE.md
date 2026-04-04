@@ -4,11 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Linux Setup Notes
 
-On Fedora 43+ (and other distros with webkit2gtk 4.1 instead of 4.0):
-- Install: `sudo dnf install gtk3-devel webkit2gtk4.1-devel`
-- Always pass `-tags webkit2_4_1` to `wails dev` and `wails build`
+On Fedora 43+ (and any distro with webkit2gtk 4.1 instead of 4.0):
 
-On Ubuntu 24.04 (CI): `webkit2gtk-4.0` is no longer available. The CI workflow (`build.yml`) handles this by installing `libwebkit2gtk-4.1-dev` and generating a `webkit2gtk-4.0.pc` shim that inlines the real cflags/libs from `webkit2gtk-4.1`, then sets `PKG_CONFIG_PATH` to that shim. This is only needed in CI — locally, the `-tags webkit2_4_1` build tag is sufficient.
+Wails v2.12.0 has a bug: `-tags webkit2_4_1` doesn't fix all internal packages — `pkg/assetserver/webview` still requests `webkit2gtk-4.0` from pkg-config. The fix is a one-time shim `.pc` file written into the system pkg-config search path (no env var needed, survives reboots):
+
+```bash
+sudo bash -c 'printf "Name: webkit2gtk-4.0\nDescription: webkit2gtk-4.1 compat shim\nVersion: %s\nCflags: %s\nLibs: %s\n" \
+  "$(pkg-config --modversion webkit2gtk-4.1)" \
+  "$(pkg-config --cflags webkit2gtk-4.1)" \
+  "$(pkg-config --libs webkit2gtk-4.1)" \
+  > /usr/lib64/pkgconfig/webkit2gtk-4.0.pc'
+```
+
+After that, the normal commands work without any prefix:
+
+```bash
+wails dev -tags webkit2_4_1
+wails build -tags webkit2_4_1
+```
+
+The CI workflow (`build.yml`) creates its own shim inline on each run (Ubuntu doesn't have `/usr/lib64`).
 
 ## What This Is
 

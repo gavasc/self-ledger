@@ -10,6 +10,8 @@ export function AddTransaction(arg1:main.Transaction):Promise<number>;
 
 export function AddTransfer(arg1:main.Transfer):Promise<number>;
 
+export function BackupNow():Promise<void>;
+
 export function Close():Promise<void>;
 
 export function DeleteAccount(arg1:number):Promise<void>;
@@ -28,6 +30,8 @@ export function GetAccountBalances():Promise<Array<main.AccountBalance>>;
 
 export function GetAccounts():Promise<Array<main.Account>>;
 
+export function GetBackupConfig():Promise<main.BackupConfig>;
+
 export function GetInstallments():Promise<Array<main.Installment>>;
 
 export function GetNote(arg1:string,arg2:string,arg3:string):Promise<string>;
@@ -35,6 +39,10 @@ export function GetNote(arg1:string,arg2:string,arg3:string):Promise<string>;
 export function GetTransactions(arg1:string,arg2:string):Promise<Array<main.Transaction>>;
 
 export function GetTransfers():Promise<Array<main.Transfer>>;
+
+export function RestoreFromBackup():Promise<void>;
+
+export function SaveBackupConfig(arg1:main.BackupConfig):Promise<void>;
 
 export function SaveNote(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 

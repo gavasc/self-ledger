@@ -32,6 +32,24 @@ export namespace main {
 	        this.balance = source["balance"];
 	    }
 	}
+	export class BackupConfig {
+	    provider: string;
+	    host: string;
+	    repo: string;
+	    token: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BackupConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.host = source["host"];
+	        this.repo = source["repo"];
+	        this.token = source["token"];
+	    }
+	}
 	export class Installment {
 	    id?: number;
 	    desc: string;

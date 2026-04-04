@@ -19,6 +19,10 @@
         DeleteInstallment,
         ExportJSON,
         ExportCSV,
+        GetBackupConfig,
+        SaveBackupConfig,
+        BackupNow,
+        RestoreFromBackup,
     } from "../../wailsjs/go/main/App";
 
     interface Transaction {
@@ -127,12 +131,10 @@
     let totalExp = $derived(expenses.reduce((s, r) => s + r.val, 0));
     let totalRev = $derived(revenues.reduce((s, r) => s + r.val, 0));
     let balance = $derived(totalRev - totalExp);
-    let last4 = $derived(
-        [...records].sort((a, b) => b.id - a.id).slice(0, 4),
-    );
+    let last4 = $derived([...records].sort((a, b) => b.id - a.id).slice(0, 4));
     let ledgerSorted = $derived(
-        [...filtered].sort((a, b) =>
-            b.date.localeCompare(a.date) || b.id - a.id,
+        [...filtered].sort(
+            (a, b) => b.date.localeCompare(a.date) || b.id - a.id,
         ),
     );
 
@@ -197,6 +199,77 @@
             await ExportCSV();
         } catch (e) {
             console.error("export_csv failed:", e);
+        }
+    }
+
+    // ── Backup ────────────────────────────────────────────────
+    interface BackupConfig {
+        provider: string;
+        host: string;
+        repo: string;
+        token: string;
+    }
+
+    let backupCfg = $state<BackupConfig>({
+        provider: "github",
+        host: "",
+        repo: "",
+        token: "",
+    });
+    let backupStatus = $state<string | null>(null);
+    let backupBusy = $state(false);
+
+    async function loadBackupConfig() {
+        try {
+            backupCfg = await GetBackupConfig();
+        } catch (e) {
+            console.error("get_backup_config failed:", e);
+        }
+    }
+
+    async function saveBackupConfig() {
+        try {
+            await SaveBackupConfig(backupCfg);
+            backupStatus = "saved";
+        } catch (e) {
+            backupStatus = String(e);
+        }
+    }
+
+    async function doBackup() {
+        backupBusy = true;
+        backupStatus = "backing up...";
+        try {
+            await BackupNow();
+            backupStatus = "backup complete";
+        } catch (e) {
+            backupStatus = String(e);
+        } finally {
+            backupBusy = false;
+        }
+    }
+
+    async function doRestore() {
+        if (
+            !confirm(
+                "This will replace ALL local data with the backup. Continue?",
+            )
+        )
+            return;
+        backupBusy = true;
+        backupStatus = "restoring...";
+        try {
+            await RestoreFromBackup();
+            backupStatus = "restore complete — reloading...";
+            await loadAccounts();
+            await loadTransfers();
+            await loadInstallments();
+            setPeriod(activePeriod || "3m");
+            backupStatus = "restore complete";
+        } catch (e) {
+            backupStatus = String(e);
+        } finally {
+            backupBusy = false;
         }
     }
 
@@ -387,9 +460,10 @@
     );
 
     let installmentMap = $derived(
-        Object.fromEntries(
-            installments.map((i) => [i.id!, i]),
-        ) as Record<number, Installment>,
+        Object.fromEntries(installments.map((i) => [i.id!, i])) as Record<
+            number,
+            Installment
+        >,
     );
 
     async function addEntry(type: "expense" | "revenue") {
@@ -437,9 +511,25 @@
         const cat = eCat.trim();
         const n = parseInt(eInstallN);
         const account_id = eAccountId === "" ? null : eAccountId;
-        if (!desc || isNaN(val) || val <= 0 || !eDate || !cat || isNaN(n) || n < 2) return;
+        if (
+            !desc ||
+            isNaN(val) ||
+            val <= 0 ||
+            !eDate ||
+            !cat ||
+            isNaN(n) ||
+            n < 2
+        )
+            return;
         try {
-            await AddInstallment({ desc, cat, total_val: val, n_installments: n, start_date: eDate, account_id });
+            await AddInstallment({
+                desc,
+                cat,
+                total_val: val,
+                n_installments: n,
+                start_date: eDate,
+                account_id,
+            });
             eVal = "";
             eDesc = "";
             eInstallN = "";
@@ -777,6 +867,7 @@
         loadAccounts();
         loadTransfers();
         loadInstallments();
+        loadBackupConfig();
     });
 </script>
 
@@ -919,7 +1010,10 @@
                     <button
                         class="abtn install-toggle"
                         class:active={eInstallMode}
-                        onclick={() => { eInstallMode = !eInstallMode; eInstallN = ""; }}
+                        onclick={() => {
+                            eInstallMode = !eInstallMode;
+                            eInstallN = "";
+                        }}
                         title="split into installments">÷</button
                     >
                 </div>
@@ -1005,7 +1099,9 @@
                 </div>
                 <div class="annot" style="margin-top:0;">
                     <div class="annot-label">notes</div>
-                    <textarea rows="8" placeholder="personal annotations..."
+                    <textarea
+                        rows="8"
+                        placeholder="personal annotations..."
                         bind:value={expNote}
                         onblur={() => saveNote("expense", expNote)}
                     ></textarea>
@@ -1037,7 +1133,9 @@
                 </div>
                 <div class="annot" style="margin-top:0;">
                     <div class="annot-label">notes</div>
-                    <textarea rows="8" placeholder="personal annotations..."
+                    <textarea
+                        rows="8"
+                        placeholder="personal annotations..."
                         bind:value={revNote}
                         onblur={() => saveNote("revenue", revNote)}
                     ></textarea>
@@ -1129,7 +1227,8 @@
                                 >{brl(r.val)}</span
                             >
                             <span class="meta"
-                                >{r.desc} · {r.cat}{r.installment_id && installmentMap[r.installment_id]
+                                >{r.desc} · {r.cat}{r.installment_id &&
+                                installmentMap[r.installment_id]
                                     ? ` (${r.installment_index}/${installmentMap[r.installment_id].n_installments})`
                                     : ""}{r.account_id
                                     ? " · " + accountMap[r.account_id]
@@ -1278,36 +1377,104 @@
         </div>
         <!-- ══ SECTION 7 — Installments ══ -->
         {#if installments.length > 0}
-        <div class="block-section">
-            <div class="block-title inst">installments</div>
-            <div class="inst-list">
-                {#each installments as inst}
-                    <div class="inst-row">
-                        <div class="inst-info">
-                            <span class="inst-desc">{inst.desc}</span>
-                            <span class="inst-cat">{inst.cat}</span>
-                            {#if inst.account_id && accountMap[inst.account_id]}
-                                <span class="inst-acct">{accountMap[inst.account_id]}</span>
-                            {/if}
+            <div class="block-section">
+                <div class="block-title inst">installments</div>
+                <div class="inst-list">
+                    {#each installments as inst}
+                        <div class="inst-row">
+                            <div class="inst-info">
+                                <span class="inst-desc">{inst.desc}</span>
+                                <span class="inst-cat">{inst.cat}</span>
+                                {#if inst.account_id && accountMap[inst.account_id]}
+                                    <span class="inst-acct"
+                                        >{accountMap[inst.account_id]}</span
+                                    >
+                                {/if}
+                            </div>
+                            <div class="inst-numbers">
+                                <span class="inst-monthly exp"
+                                    >{brl(inst.monthly_val ?? 0)}</span
+                                >
+                                <span class="inst-x">×</span>
+                                <span class="inst-n"
+                                    >{inst.n_installments}×</span
+                                >
+                                <span class="inst-total"
+                                    >{brl(inst.total_val)}</span
+                                >
+                                <span class="inst-from"
+                                    >{fdt(inst.start_date)}</span
+                                >
+                                <span class="inst-progress"
+                                    >({inst.paid_count}/{inst.n_installments})</span
+                                >
+                            </div>
+                            <button
+                                class="acct-del"
+                                onclick={() => deleteInstallment(inst.id!)}
+                                title="delete installment plan">×</button
+                            >
                         </div>
-                        <div class="inst-numbers">
-                            <span class="inst-monthly exp">{brl(inst.monthly_val ?? 0)}</span>
-                            <span class="inst-x">×</span>
-                            <span class="inst-n">{inst.n_installments}×</span>
-                            <span class="inst-total">{brl(inst.total_val)}</span>
-                            <span class="inst-from">{fdt(inst.start_date)}</span>
-                            <span class="inst-progress">({inst.paid_count}/{inst.n_installments})</span>
-                        </div>
-                        <button
-                            class="acct-del"
-                            onclick={() => deleteInstallment(inst.id!)}
-                            title="delete installment plan">×</button
-                        >
-                    </div>
-                {/each}
+                    {/each}
+                </div>
             </div>
-        </div>
         {/if}
+
+        <!-- ══ SECTION — Git Backup ══ -->
+        <div class="block-section">
+            <div class="block-title" style="color:var(--ink-faint)">
+                git backup
+            </div>
+            <div
+                style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:10px;"
+            >
+                <select class="ii" bind:value={backupCfg.provider}>
+                    <option value="github">GitHub</option>
+                    <option value="gitlab">GitLab</option>
+                    <option value="forgejo">Forgejo</option>
+                    <option value="gitea">Gitea</option>
+                    <option value="custom">Custom</option>
+                </select>
+                {#if backupCfg.provider !== "github" && backupCfg.provider !== "gitlab"}
+                    <input
+                        class="ii"
+                        type="text"
+                        placeholder="host (e.g. codeberg.org)"
+                        bind:value={backupCfg.host}
+                    />
+                {/if}
+                <input
+                    class="ii"
+                    type="text"
+                    placeholder="owner/repo"
+                    bind:value={backupCfg.repo}
+                />
+                <input
+                    class="ii"
+                    type="password"
+                    placeholder="token"
+                    bind:value={backupCfg.token}
+                />
+                <button class="abtn" onclick={saveBackupConfig}>save</button>
+                <button
+                    class="exp-btn"
+                    onclick={doBackup}
+                    disabled={backupBusy || !backupCfg.repo}>backup now</button
+                >
+                <button
+                    class="exp-btn"
+                    onclick={doRestore}
+                    disabled={backupBusy || !backupCfg.repo}>restore</button
+                >
+            </div>
+            {#if backupStatus}
+                <div
+                    style="font-size:13px;color:var(--ink-faint);margin-top:6px"
+                >
+                    {backupStatus}
+                </div>
+            {/if}
+        </div>
     </div>
 </div>
 
@@ -1482,7 +1649,7 @@
         margin-top: 64px;
     }
     #inner {
-        max-width: 1100px;
+        max-width: 1500px;
         margin: 0 auto;
         padding: 0 32px;
     }
