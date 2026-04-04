@@ -13,6 +13,7 @@ A local-first personal finance desktop app. Track expenses, revenues, and accoun
 - See how current spending compares to the previous equivalent period
 - Period notes for expenses and revenues
 - Export all data to JSON or CSV
+- Backup your data to a git repo as JSON
 
 ## Requirements
 
