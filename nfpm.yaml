@@ -7,7 +7,7 @@ description: Local-first personal finance desktop app. No cloud, no accounts —
 contents:
   - src: build/bin/self-ledger
     dst: /usr/local/bin/self-ledger
-  - src: build/favicon.png
+  - src: frontend/static/favicon.png
     dst: /usr/share/pixmaps/self-ledger.png
   - src: build/self-ledger.desktop
     dst: /usr/share/applications/self-ledger.desktop
