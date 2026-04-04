@@ -9,10 +9,10 @@ contents:
     dst: /usr/local/bin/self-ledger
 overrides:
   deb:
-    dependencies:
+    depends:
       - libwebkit2gtk-4.0-0
       - libgtk-3-0
   rpm:
-    dependencies:
+    depends:
       - webkit2gtk4.0
       - gtk3
