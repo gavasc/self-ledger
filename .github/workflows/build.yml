@@ -14,7 +14,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
-            artifact: build/bin/self-ledger
+            artifact: build/packages/*
           - os: windows-latest
             artifact: build/bin/self-ledger.exe
           - os: macos-latest
@@ -40,7 +40,7 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev rpm
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -48,6 +48,31 @@ jobs:
 
       - name: Build
         run: wails build
+
+      - name: Package Linux (.deb and .rpm)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          gem install fpm --no-document
+          mkdir -p build/packages
+          cp build/bin/self-ledger build/packages/self-ledger
+
+          fpm -s dir -t deb \
+            -n self-ledger \
+            -v "$VERSION" \
+            --depends libwebkit2gtk-4.0-0 \
+            --depends libgtk-3-0 \
+            -p "build/packages/self-ledger-${VERSION}-amd64.deb" \
+            build/bin/self-ledger=/usr/local/bin/self-ledger
+
+          fpm -s dir -t rpm \
+            -n self-ledger \
+            -v "$VERSION" \
+            --depends webkit2gtk4.0 \
+            --depends gtk3 \
+            -p "build/packages/self-ledger-${VERSION}-x86_64.rpm" \
+            build/bin/self-ledger=/usr/local/bin/self-ledger
 
       - name: Package macOS app bundle
         if: matrix.os == 'macos-latest'
