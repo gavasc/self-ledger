@@ -230,8 +230,8 @@ func (db *DB) GetAccountBalances() ([]AccountBalance, error) {
 			a.initial_balance
 				+ COALESCE((SELECT SUM(amount) FROM transfers    WHERE to_account_id   = a.id), 0)
 				- COALESCE((SELECT SUM(amount) FROM transfers    WHERE from_account_id = a.id), 0)
-				+ COALESCE((SELECT SUM(val)    FROM transactions WHERE account_id = a.id AND type = 'revenue'), 0)
-				- COALESCE((SELECT SUM(val)    FROM transactions WHERE account_id = a.id AND type = 'expense'), 0)
+				+ COALESCE((SELECT SUM(val)    FROM transactions WHERE account_id = a.id AND type = 'revenue' AND date <= date('now')), 0)
+				- COALESCE((SELECT SUM(val)    FROM transactions WHERE account_id = a.id AND type = 'expense' AND date <= date('now')), 0)
 				AS balance
 		FROM accounts a
 		ORDER BY a.name
