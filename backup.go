@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -125,7 +126,38 @@ func (bm *BackupManager) ensureRepo(remoteURL string) error {
 	return nil
 }
 
+// snapshotTransactionCount parses a JSON backup string and returns the number
+// of transactions it contains. Returns 0 on any parse error (treats corrupt/empty
+// JSON as having no transactions).
+func snapshotTransactionCount(jsonData string) int {
+	var s struct {
+		Transactions []json.RawMessage `json:"transactions"`
+	}
+	if err := json.Unmarshal([]byte(jsonData), &s); err != nil {
+		return 0
+	}
+	return len(s.Transactions)
+}
+
+// fetchRemoteJSON fetches the remote backup file content without modifying the
+// working tree. Returns "" if the remote does not exist yet or has no backup
+// file — that is not an error, it just means this is the first push.
+func (bm *BackupManager) fetchRemoteJSON() string {
+	// Update remote refs. Ignore errors (remote may not exist yet).
+	bm.runGit("fetch", "origin") //nolint:errcheck
+	out, err := bm.runGit("show", "FETCH_HEAD:self_ledger_backup.json")
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
 // BackupNow writes jsonData to the local repo and pushes to the remote.
+// It skips the commit/push when:
+//   - the remote already contains identical content (no-op), OR
+//   - local has no transactions but remote does — this prevents an empty-DB
+//     force-push from overwriting real data when the app first launches on a
+//     new device before the user has restored from backup.
 func (bm *BackupManager) BackupNow(jsonData string) error {
 	cfg, err := bm.LoadConfig()
 	if err != nil {
@@ -142,6 +174,18 @@ func (bm *BackupManager) BackupNow(jsonData string) error {
 	remoteURL := cfg.RemoteURL()
 	if err := bm.ensureRepo(remoteURL); err != nil {
 		return err
+	}
+
+	// Fetch remote content and compare before writing anything.
+	remoteJSON := bm.fetchRemoteJSON()
+	if remoteJSON == jsonData {
+		// Remote is already up to date.
+		return nil
+	}
+	if snapshotTransactionCount(jsonData) == 0 && snapshotTransactionCount(remoteJSON) > 0 {
+		// Local DB is empty but remote has data. Skip to avoid overwriting a
+		// real backup with a blank slate (typical on first launch of a new device).
+		return nil
 	}
 
 	backupFile := filepath.Join(bm.repoPath, "self_ledger_backup.json")
