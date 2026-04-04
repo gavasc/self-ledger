@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 On Fedora 43+ (and other distros with webkit2gtk 4.1 instead of 4.0):
 - Install: `sudo dnf install gtk3-devel webkit2gtk4.1-devel`
 - Always pass `-tags webkit2_4_1` to `wails dev` and `wails build`
-- Do **not** symlink `webkit2gtk-4.1.pc` as `webkit2gtk-4.0.pc` — use the build tag instead
+
+On Ubuntu 24.04 (CI): `webkit2gtk-4.0` is no longer available. The CI workflow (`build.yml`) handles this by installing `libwebkit2gtk-4.1-dev` and generating a `webkit2gtk-4.0.pc` shim that inlines the real cflags/libs from `webkit2gtk-4.1`, then sets `PKG_CONFIG_PATH` to that shim. This is only needed in CI — locally, the `-tags webkit2_4_1` build tag is sufficient.
 
 ## What This Is
 
@@ -166,4 +167,4 @@ balance = initial_balance
 
 ### Key Go State
 
-`*DB` wraps a `*sql.DB` with `MaxOpenConns(1)` to serialize all access (mirrors Rust's `Mutex<Connection>`). Stored on `*App` and shared across all method calls.
+`*DB` wraps a `*sql.DB` with `MaxOpenConns(1)` to serialize all access. Stored on `*App` and shared across all method calls.

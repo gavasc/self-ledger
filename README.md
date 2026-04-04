@@ -40,6 +40,22 @@ wails build                        # macOS / Windows / Linux with webkit2gtk 4.0
 
 The binary is output to `build/bin/self-ledger`.
 
+## Packaging (Linux)
+
+`.deb` and `.rpm` packages are produced by [nfpm](https://nfpm.goreleaser.com/). The packages install:
+
+| File | Destination |
+|------|-------------|
+| `build/bin/self-ledger` | `/usr/local/bin/self-ledger` |
+| `frontend/static/favicon.png` | `/usr/share/pixmaps/self-ledger.png` |
+| `self-ledger.desktop` | `/usr/share/applications/self-ledger.desktop` |
+
+```bash
+go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+VERSION=1.0.0 nfpm package --packager deb --target build/packages/
+VERSION=1.0.0 nfpm package --packager rpm --target build/packages/
+```
+
 ## Data
 
 The database is stored at:
