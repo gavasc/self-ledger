@@ -7,33 +7,38 @@ A local-first personal finance desktop app. Track expenses, revenues, and accoun
 - Log expenses and revenues with description, category, date, and account
 - Manage multiple accounts (checking, savings, investments, etc.)
 - Record transfers between accounts
+- Split a purchase into N monthly transactions
 - View spending and revenue trends via day-by-day line charts
 - Expense breakdown by category
-- Period comparison -> see how current spending compares to the previous equivalent period
+- See how current spending compares to the previous equivalent period
+- Period notes for expenses and revenues
 - Export all data to JSON or CSV
 
 ## Requirements
 
-- [Rust](https://rustup.rs/)
+- [Go](https://go.dev/dl/) 1.21+
+- [Wails v2](https://wails.io/docs/gettingstarted/installation) (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
 - [Bun](https://bun.sh/)
-- [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your OS (WebView, build tools)
+- Linux: `gtk3-devel` and `webkit2gtk4.1-devel` (or equivalent for your distro)
 
 ## Running in development
 
 ```bash
-bun install
-bunx tauri dev
+cd frontend && bun install && cd ..
+wails dev -tags webkit2_4_1        # Linux with webkit2gtk 4.1
+wails dev                          # macOS / Windows / Linux with webkit2gtk 4.0
 ```
 
-This starts the Vite dev server and opens the Tauri window with hot reload.
+This starts the Vite dev server on `:5173` and opens the Wails window with hot reload.
 
 ## Building
 
 ```bash
-bun run tauri build
+wails build -tags webkit2_4_1     # Linux with webkit2gtk 4.1
+wails build                        # macOS / Windows / Linux with webkit2gtk 4.0
 ```
 
-The installable bundle is output to `src-tauri/target/release/bundle/`.
+The binary is output to `build/bin/self-ledger`.
 
 ## Data
 
@@ -47,6 +52,5 @@ The database is stored at:
 
 ## Stack
 
-- **Frontend** — SvelteKit + Svelte 5 (runes), Chart.js
-- **Backend** — Tauri 2 (Rust), rusqlite (SQLite)
-- **Package manager** — Bun
+- **Frontend** — SvelteKit + Svelte 5 (runes), Chart.js, Bun
+- **Backend** — Wails v2 (Go), modernc/sqlite (pure-Go SQLite, no CGO)

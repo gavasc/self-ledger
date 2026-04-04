@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Linux Setup Notes
+
+On Fedora 43+ (and other distros with webkit2gtk 4.1 instead of 4.0):
+- Install: `sudo dnf install gtk3-devel webkit2gtk4.1-devel`
+- Always pass `-tags webkit2_4_1` to `wails dev` and `wails build`
+- Do **not** symlink `webkit2gtk-4.1.pc` as `webkit2gtk-4.0.pc` — use the build tag instead
+
 ## What This Is
 
 Self-Ledger is a local-first personal finance desktop app built with **Wails v2 (Go) + SvelteKit (TypeScript/Svelte 5)**. All data is stored in SQLite at `~/.config/self-ledger/self_ledger.db`. No network requests — everything runs locally.
@@ -11,8 +18,10 @@ Self-Ledger is a local-first personal finance desktop app built with **Wails v2 
 Uses **bun** as the package manager for the frontend (not npm).
 
 ```bash
-wails dev            # Start app with hot reload (starts Vite on :5173 + Go backend)
-wails build          # Build final desktop app bundle (output: build/bin/self-ledger)
+wails dev -tags webkit2_4_1   # Linux with webkit2gtk 4.1 (Fedora 43+)
+wails dev                      # macOS / Windows / Linux with webkit2gtk 4.0
+wails build -tags webkit2_4_1 # Build for Linux with webkit2gtk 4.1
+wails build                    # Build final desktop app bundle (output: build/bin/self-ledger)
 
 # Frontend only (run from frontend/)
 bun install          # Install frontend dependencies
@@ -33,6 +42,14 @@ frontend/src/routes/+page.svelte             main.go    (app init, window config
                                              app.go     (IPC handlers — all 18 methods)
                                              db.go      (SQLite operations, all structs)
 ```
+
+### Frontend files
+
+- `frontend/src/routes/+page.svelte` — entire UI (single Svelte 5 file)
+- `frontend/src/routes/+layout.ts` — disables SSR (`ssr = false`, `prerender = true`)
+- `frontend/src/hooks.client.ts` — SvelteKit client error handler (logs to console)
+- `frontend/vite.config.js` — Vite config; sets `server.cors: true` and `server.fs.allow: ['..']` so the Wails proxy can load `/@fs/` route modules without 403s
+- `frontend/svelte.config.js` — uses `adapter-static` with `fallback: "index.html"` (SPA mode)
 
 ### Frontend (`frontend/src/routes/+page.svelte`)
 
