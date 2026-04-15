@@ -20,3 +20,7 @@ overrides:
     depends:
       - webkit2gtk4.1
       - gtk3
+  archlinux:
+    depends:
+      - webkit2gtk-4.1
+      - gtk3

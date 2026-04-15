@@ -56,16 +56,16 @@ jobs:
       - name: Build
         run: wails build -tags webkit2_4_1
 
-      - name: Package Linux (.deb and .rpm)
+      - name: Package Linux (.deb, .rpm, and Arch)
         if: matrix.os == 'ubuntu-24.04'
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           mkdir -p build/packages
-          cp build/bin/self-ledger build/packages/self-ledger
           VERSION="$VERSION" nfpm package --packager deb --target build/packages/
           VERSION="$VERSION" nfpm package --packager rpm --target build/packages/
+          VERSION="$VERSION" nfpm package --packager archlinux --target build/packages/
 
       - name: Package macOS app bundle
         if: matrix.os == 'macos-latest'
