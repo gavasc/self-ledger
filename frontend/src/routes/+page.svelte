@@ -139,6 +139,17 @@
         ),
     );
 
+    // ── Pagination ────────────────────────────────────────────
+    const PAGE_SIZE = 15;
+    let ledgerPage = $state(1);
+    let transfersPage = $state(1);
+    let ledgerPageCount = $derived(Math.max(1, Math.ceil(ledgerSorted.length / PAGE_SIZE)));
+    let ledgerPaged = $derived(ledgerSorted.slice((ledgerPage - 1) * PAGE_SIZE, ledgerPage * PAGE_SIZE));
+    let transfersPageCount = $derived(Math.max(1, Math.ceil(transfers.length / PAGE_SIZE)));
+    let transfersPaged = $derived(transfers.slice((transfersPage - 1) * PAGE_SIZE, transfersPage * PAGE_SIZE));
+    $effect(() => { filtered; ledgerPage = 1; });
+    $effect(() => { transfers; transfersPage = 1; });
+
     // ── Notes ─────────────────────────────────────────────────
     let expNote = $state("");
     let revNote = $state("");
@@ -1170,7 +1181,7 @@
             <div class="vcol">
                 <div class="drule"></div>
                 <div class="sec-label" style="margin-top:10px;">ledger</div>
-                {#each ledgerSorted as r}
+                {#each ledgerPaged as r}
                     {#if editingId === r.id}
                         <div class="edit-row">
                             <select
@@ -1252,6 +1263,13 @@
                         </div>
                     {/if}
                 {/each}
+                {#if ledgerPageCount > 1}
+                    <div class="pagination">
+                        <button disabled={ledgerPage === 1} onclick={() => ledgerPage--}>‹</button>
+                        <span>{ledgerPage} / {ledgerPageCount}</span>
+                        <button disabled={ledgerPage === ledgerPageCount} onclick={() => ledgerPage++}>›</button>
+                    </div>
+                {/if}
             </div>
             <div class="vdiv"></div>
             <div
@@ -1363,7 +1381,7 @@
 
                     <div class="drule" style="margin:12px 0 8px;"></div>
 
-                    {#each transfers as t}
+                    {#each transfersPaged as t}
                         <div class="row tf-row">
                             <span class="tf-route">
                                 {t.from_account_name} → {t.to_account_name}
@@ -1381,6 +1399,13 @@
                             >
                         </div>
                     {/each}
+                    {#if transfersPageCount > 1}
+                        <div class="pagination">
+                            <button disabled={transfersPage === 1} onclick={() => transfersPage--}>‹</button>
+                            <span>{transfersPage} / {transfersPageCount}</span>
+                            <button disabled={transfersPage === transfersPageCount} onclick={() => transfersPage++}>›</button>
+                        </div>
+                    {/if}
                 </div>
             </div>
         </div>
@@ -2199,5 +2224,26 @@
         opacity: 1;
         color: var(--red);
         border-color: var(--red);
+    }
+    .pagination {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0;
+        font-size: 0.85rem;
+        color: var(--ink-faint);
+    }
+    .pagination button {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 0.2rem 0.6rem;
+        cursor: pointer;
+        color: inherit;
+    }
+    .pagination button:disabled {
+        opacity: 0.3;
+        cursor: default;
     }
 </style>
